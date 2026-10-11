@@ -1,0 +1,5 @@
+node_modules/
+*.qmandate.json
+*.key
+.env*
+native/target/

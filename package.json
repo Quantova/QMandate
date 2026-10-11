@@ -1,0 +1,61 @@
+{
+  "name": "@quantovainc/qmandate",
+  "version": "0.1.0",
+  "description": "Post quantum mandates for SI agents. Proves who authorised an agent, within which limits, and that every action stayed inside that authority, with ML-DSA-65 under FIPS 204 and Quantova time proofs.",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "bin": {
+    "qmandate": "bin/qmandate.js"
+  },
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "lib/",
+    "bin/",
+    "wasm/qmandate_native.js",
+    "wasm/qmandate_native_bg.wasm",
+    "wasm/qmandate_native.d.ts",
+    "LICENSE-APACHE",
+    "LICENSE-MIT",
+    "NOTICE",
+    "AUTHORS"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@quantovainc/qstamp": "0.1.4"
+  },
+  "keywords": [
+    "post-quantum",
+    "quantum-safe",
+    "ai-agents",
+    "agent-identity",
+    "delegated-authority",
+    "mandate",
+    "agentic-payments",
+    "ml-dsa",
+    "fips-204",
+    "quantova"
+  ],
+  "license": "Apache-2.0 OR MIT",
+  "author": "Quantova Inc",
+  "homepage": "https://github.com/Quantova/QMandate",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Quantova/QMandate.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Quantova/QMandate/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
