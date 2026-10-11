@@ -1,0 +1,21 @@
+[package]
+name = "qmandate-native"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0 OR MIT"
+publish = false
+description = "ML-DSA-65 mandate and action signing for QMandate, built on Quantova Q-Crypto"
+repository = "https://github.com/Quantova/QMandate"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+qtv-crypto = { git = "https://github.com/Quantova/Q-Crypto.git", rev = "12fefda211c5b7f8a8e9ed60e6a35d880da54c38", default-features = false }
+wasm-bindgen = "=0.2.126"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
