@@ -12,7 +12,7 @@ const qm = require('..');
 const ENVELOPE_MAX = 1024 * 1024;
 const DETAILS_MAX = 64 * 1024 * 1024;
 
-const HELP = `qmandate, post quantum mandates for SI agents with Quantova time proofs
+const HELP = `qmandate, post quantum mandates for AI agents with Quantova time proofs
 
   qmandate keygen <keyfile>
   qmandate key <keyfile>

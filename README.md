@@ -1,14 +1,14 @@
 # QMandate
 
-QMandate is a post quantum authority layer for superintelligence agents. It proves which person or organisation authorised an agent, exactly what the agent was permitted to do, within which limits and for how long, and that every action the agent took stayed inside that authority. Every mandate and every action is signed with the Module Lattice Digital Signature Algorithm, parameter set 65, as standardised in FIPS 204, and each can carry a Qstamp time proof recorded on the Quantova chain.
+QMandate is a post quantum authority layer for AI agents. It proves which person or organisation authorised an agent, exactly what the agent was permitted to do, within which limits and for how long, and that every action the agent took stayed inside that authority. Every mandate and every action is signed with the Module Lattice Digital Signature Algorithm, parameter set 65, as standardised in FIPS 204, and each can carry a Qstamp time proof recorded on the Quantova network.
 
 ## What QMandate is
 
-An SI agent that pays suppliers, approves refunds, moves funds or answers customers acts on behalf of an organisation. When something goes wrong, three questions decide liability. Who authorised the agent. What exactly was it permitted to do. And did this action fall inside that permission at the moment it happened.
+An AI agent that pays suppliers, approves refunds, moves funds or answers customers acts on behalf of an organisation. When something goes wrong, three questions decide liability. Who authorised the agent. What exactly was it permitted to do. And did this action fall inside that permission at the moment it happened.
 
 QMandate answers all three with cryptographic evidence. A principal, such as a treasury officer, a business unit or the organisation itself, signs a mandate that names one agent key and lists the permitted actions, the currency and limit of each, the counterparties the agent may deal with and the period the mandate is in force. The agent signs every action it takes, and each action names the exact mandate it relies on. A verifier, whether an auditor, a regulator, a payment provider or a court, can then confirm that the action was taken by that agent, under that mandate, within its limits and before any revocation, without trusting the agent, the organisation or Quantova Inc.
 
-QMandate is standalone. It runs on the systems of the organisation, holds its keys locally, needs no blockchain wallet and no digital asset, and uses the Quantova chain only as a neutral public ledger for time proofs.
+QMandate is standalone. It runs on the systems of the organisation, holds its keys locally and uses the Quantova network only as a neutral public ledger for time proofs.
 
 ## Why organisations need it
 
@@ -33,7 +33,7 @@ QMandate gives a network neutral, post quantum record of authority and conduct t
 
 2. Give every approving authority its own key. The principal key belongs to the person or function that is accountable for the agent, and is held in the secrets manager or hardware protected store of the organisation.
 
-3. Grant a mandate. The principal signs a mandate naming the agent key, each permitted action with its currency, its limit per action and its total limit, the permitted counterparties if any, and the period of validity. Amounts are whole numbers of minor units, so 150000 in US dollars means 1,500.00 dollars. The mandate is anchored on the Quantova chain before the agent first uses it, which proves that the authority existed before any action taken under it.
+3. Grant a mandate. The principal signs a mandate naming the agent key, each permitted action with its currency, its limit per action and its total limit, the permitted counterparties if any, and the period of validity. Amounts are whole numbers of minor units, so 150000 in US dollars means 1,500.00 dollars. The mandate is anchored on the Quantova network before the agent first uses it, which proves that the authority existed before any action taken under it.
 
 4. Check before acting. Before the agent executes an action, the application calls authorise with the mandate, the intended action, the amount already spent under the mandate and any revocations it holds. The call returns allowed or refused with the reasons, entirely offline and in microseconds. An action that is refused is never executed.
 
@@ -65,11 +65,11 @@ When an envelope is anchored, only a 32 byte Qstamp commitment reaches the chain
 
 2. Statements. Each statement is a canonical binary encoding that begins with the ASCII bytes QMDT and the version byte 1, followed by the statement type and its fields in a fixed order. Every field is an unsigned 16 bit big endian length followed by its bytes, and lists are encoded as a count followed by their items, so every statement has exactly one encoding. A mandate encodes the mandate identifier, the principal and agent key identifiers, the agent label, each scope as action, currency, limit per action and total limit, the counterparties, the validity period, the issue time and a note. An action encodes the mandate identifier, the mandate reference, a fresh action identifier, the agent key identifier, the action, currency, amount, counterparty, the fingerprint of the details, the time and a note. A revocation encodes the mandate identifier, the mandate reference, the principal key identifier, the time and a note.
 
-3. Signatures. Statements are signed with ML-DSA-65 in its hedged form under the FIPS 204 context string quantova/qmandate/1. This context separates QMandate signatures from QSign signatures, from Quantova chain transactions and from every other use of the algorithm.
+3. Signatures. Statements are signed with ML-DSA-65 in its hedged form under the FIPS 204 context string quantova/qmandate/1. This context separates QMandate signatures from QSign signatures, from Quantova network transactions and from every other use of the algorithm.
 
 4. Mandate reference. Every action names its mandate by the SHA3 hash of the label quantova/qmandate/ref/1, the byte 0x00, the encoded mandate and its signature. An action therefore relies on one exact signed mandate and cannot be moved to another.
 
-5. Anchor. To anchor an envelope, QMandate stamps the SHA3 hash of the label quantova/qmandate/anchor/1, the byte 0x00, the encoded statement and its signature, as a Qstamp record for mandates and revocations and as an SI agent action for actions.
+5. Anchor. To anchor an envelope, QMandate stamps the SHA3 hash of the label quantova/qmandate/anchor/1, the byte 0x00, the encoded statement and its signature, as a Qstamp record for mandates and revocations and as an AI agent action for actions.
 
 ## Rules applied by verification
 
