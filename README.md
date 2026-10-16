@@ -43,7 +43,7 @@ QMandate gives a network neutral, post quantum record of authority and conduct t
 
 7. Revoke when circumstances change. When an agent is retired, compromised or no longer needed, the principal signs and anchors a revocation. Every action recorded after it is shown to be invalid, and actions recorded before it remain valid.
 
-8. Verify when evidence is needed. The organisation hands the action, the mandate, any revocations and the earlier actions under the same mandate to the party that asks. That party verifies them against the principal key it expects, with the verify command, the library or the independent procedure below. Verification always requires the expected principal, so a mandate issued by any other key is rejected.
+8. Verify when evidence is needed. The organisation hands the action, the mandate, any revocations and the earlier actions under the same mandate to the party that asks. That party verifies them against the principal key it expects, with the verify command, the library or the independent procedure below. Verification always requires the expected envelope type and the expected principal, so a mandate issued by any other key is rejected and a mandate or revocation can never pass where an action is expected.
 
 ## Integration patterns
 
@@ -73,7 +73,7 @@ When an envelope is anchored, only a 32 byte Qstamp commitment reaches the chain
 
 ## Rules applied by verification
 
-1. The envelope is well formed and its signer identifier matches its public key.
+1. The envelope is of the type the verifier expects, is well formed, and its signer identifier matches its public key.
 2. A mandate is signed by the principal it names, and an action by the agent it names.
 3. The action names the exact mandate by its reference, and the mandate names the agent that signed the action.
 4. The action is listed in the mandate, in the permitted currency and within the limit per action.
@@ -119,7 +119,7 @@ qmandate act --key agent.key --mandate mandate.json --action payment.send --curr
 qmandate anchor mandate.json --seed-file account.key
 qmandate anchor action.json --seed-file account.key
 
-qmandate verify action.json --mandate mandate.json --principal-public-key treasury.pub.json --details-file invoice.pdf --no-revocations --no-prior-actions
+qmandate verify action.json --type action --mandate mandate.json --principal-public-key treasury.pub.json --details-file invoice.pdf --no-revocations --no-prior-actions
 
 qmandate revoke --key treasury.key --mandate mandate.json --note "Agent retired" --out revoke.json
 ```
@@ -145,7 +145,7 @@ if (decision.allowed) {
   const action = qm.act({ key: agentKey, mandate, action: 'payment.send', currency: 'USD', amount: '150000', counterparty: 'ACME Supplies Ltd', details: invoiceBytes, spent: '0', revocations });
 }
 
-const result = await qm.verify(action, { mandate, principalKeyId, priorActions, revocations });
+const result = await qm.verify(action, { type: 'action', mandate, principalKeyId, priorActions, revocations });
 ```
 
 ## Independent verification procedure

@@ -23,7 +23,7 @@ const HELP = `qmandate, post quantum mandates for AI agents with Quantova time p
                [--counterparty NAME] [--details-file FILE] --spent N [--revocation FILE]... [--note TEXT] --out FILE
   qmandate revoke --key <principal keyfile> --mandate FILE [--note TEXT] --out FILE
   qmandate anchor <envelope>... --seed-file <file> [--index N] [--rpc URL] [--max-fee N]
-  qmandate verify <envelope> [--mandate FILE] [--principal-key-id HEX | --principal-public-key FILE]
+  qmandate verify <envelope> --type mandate|action|revoke [--mandate FILE] [--principal-key-id HEX | --principal-public-key FILE]
                   [--revocation FILE... | --no-revocations] [--prior FILE... | --no-prior-actions]
                   [--details-file FILE] [--allow-unanchored] [--at TIME] [--rpc URL] [--json]
 
@@ -46,7 +46,7 @@ const SPEC = {
   act: { flags: ['force'], values: ['key', 'mandate', 'action', 'currency', 'amount', 'counterparty', 'details-file', 'spent', 'note', 'out'], multi: ['revocation'] },
   revoke: { flags: ['force'], values: ['key', 'mandate', 'note', 'out'] },
   anchor: { flags: [], values: ['seed-file', 'index', 'rpc', 'max-fee'] },
-  verify: { flags: ['allow-unanchored', 'no-revocations', 'no-prior-actions', 'json'], values: ['mandate', 'principal-key-id', 'principal-public-key', 'details-file', 'rpc', 'at'], multi: ['revocation', 'prior'] },
+  verify: { flags: ['allow-unanchored', 'no-revocations', 'no-prior-actions', 'json'], values: ['type', 'mandate', 'principal-key-id', 'principal-public-key', 'details-file', 'rpc', 'at'], multi: ['revocation', 'prior'] },
 };
 
 function parse(command, argv) {
@@ -391,7 +391,9 @@ async function cmdVerify(positional, flags) {
   if (flags['principal-key-id'] === undefined && flags['principal-public-key'] === undefined) throw usageError('give the expected principal with --principal-key-id or --principal-public-key');
   if (flags['no-revocations'] && flags.revocation) throw usageError('give --revocation or --no-revocations, not both');
   if (flags['no-prior-actions'] && flags.prior) throw usageError('give --prior or --no-prior-actions, not both');
-  if (env && env.type === 'action' && opts.mandate === undefined) throw usageError('--mandate is required to verify an action');
+  if (!['mandate', 'action', 'revoke'].includes(flags.type)) throw usageError('give the expected envelope type with --type mandate, action or revoke');
+  opts.type = flags.type;
+  if (opts.type !== 'mandate' && opts.mandate === undefined) throw usageError('--mandate is required to verify an ' + (opts.type === 'action' ? 'action' : 'revocation'));
   if (flags['principal-key-id'] !== undefined) opts.principalKeyId = flags['principal-key-id'];
   if (flags['principal-public-key'] !== undefined) {
     const desc = readJson(flags['principal-public-key'], 'principal key');

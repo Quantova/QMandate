@@ -91,6 +91,7 @@ export interface AnchorOptions {
 }
 
 export interface VerifyOptions {
+  type: EnvelopeType;
   mandate?: Envelope;
   principalKeyId?: string;
   principalPublicKey?: Uint8Array | string;
@@ -132,7 +133,7 @@ export function authorise(mandate: Envelope, request: ActionRequest, options?: A
 export function act(options: ActOptions): Envelope;
 export function revoke(options: RevokeOptions): Envelope;
 export function anchor(envelopes: Envelope | Envelope[], options: AnchorOptions): Promise<Envelope[]>;
-export function verify(envelope: unknown, options?: VerifyOptions): Promise<VerifyResult>;
+export function verify(envelope: unknown, options: VerifyOptions): Promise<VerifyResult>;
 export function mandateRef(mandate: Envelope): string;
 export function anchorDigest(envelope: Envelope): string;
 export const FORMAT: 'qmandate/1';
