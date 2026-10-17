@@ -11,7 +11,7 @@ export interface Scope {
 }
 
 export interface Envelope {
-  format: 'qmandate/1';
+  format: 'qmandate/1' | 'qmandate/2';
   type: EnvelopeType;
   algorithm: 'ML-DSA-65';
   signer: { id: string; publicKey: string };
@@ -51,12 +51,22 @@ export interface EndpointOptions {
   client?: unknown;
   clients?: Array<string | unknown>;
   trustSingleEndpoint?: boolean;
+  trustCustomEndpoints?: boolean;
+  allowLoopback?: boolean;
+  endpointAllowList?: string[];
   clockSlackMs?: number;
+  strict?: boolean;
+}
+
+export interface LedgerStore {
+  read(name: string): Promise<string | null>;
+  compareAndSwap(name: string, expected: string | null, next: string): Promise<boolean>;
 }
 
 export interface AuthoriseOptions extends EndpointOptions {
   at?: string;
   revocations?: Envelope[];
+  ledger?: string | LedgerStore;
   spent?: string;
   agentKeyId?: string;
   principalKeyId?: string;
@@ -69,12 +79,16 @@ export interface AuthoriseResult {
   mandateId: string;
   mandateRef: string;
   at: string;
+  atSupplied: boolean;
+  chainTime: string;
+  spent: string;
 }
 
 export interface ActOptions extends ActionRequest, EndpointOptions {
   key: Uint8Array;
   revocations?: Envelope[];
   mandate: Envelope;
+  ledger: string | LedgerStore;
   details?: Uint8Array;
   detailsDigest?: string;
   spent?: string;
@@ -108,6 +122,9 @@ export interface VerifyOptions {
   priorActions?: Envelope[];
   details?: Uint8Array;
   detailsDigest?: string;
+  counterpartyKeyId?: string;
+  counterpartyPublicKey?: Uint8Array | string;
+  strict?: boolean;
   requireAnchor?: boolean;
   maxAnchorDelay?: number;
   at?: string;
@@ -115,6 +132,10 @@ export interface VerifyOptions {
   client?: unknown;
   clients?: Array<string | unknown>;
   trustSingleEndpoint?: boolean;
+  trustCustomEndpoints?: boolean;
+  allowLoopback?: boolean;
+  endpointAllowList?: string[];
+  expectedSender?: string | string[];
   contract?: string;
   trustCustomContract?: boolean;
 }
@@ -125,13 +146,15 @@ export interface VerifyCheck {
   detail: string;
   transport: boolean;
   indeterminate: boolean;
+  unproven: boolean;
 }
 
 export interface VerifyResult {
   valid: boolean;
-  status: 'valid' | 'invalid' | 'indeterminate';
+  status: 'valid' | 'invalid' | 'indeterminate' | 'unproven';
   type: EnvelopeType | null;
   checks: VerifyCheck[];
+  notes?: string[];
   [field: string]: unknown;
   endpoints: string[];
   officialEndpoints: boolean | null;
@@ -148,8 +171,10 @@ export function revoke(options: RevokeOptions): Envelope;
 export function anchor(envelopes: Envelope | Envelope[], options: AnchorOptions): Promise<Envelope[]>;
 export function complete(envelopes: Envelope | Envelope[], pending: unknown, options?: EndpointOptions & { mandate?: Envelope; timeoutMs?: number }): Promise<Envelope[]>;
 export function verify(envelope: unknown, options: VerifyOptions): Promise<VerifyResult>;
+export function fileLedger(folder: string): LedgerStore;
 export function mandateRef(mandate: Envelope): string;
 export function anchorDigest(envelope: Envelope): string;
 export const FORMAT: 'qmandate/1';
+export const ACTION_FORMAT: 'qmandate/2';
 export const ALGORITHM: 'ML-DSA-65';
 export const TYPES: readonly EnvelopeType[];

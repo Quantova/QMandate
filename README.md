@@ -35,9 +35,9 @@ QMandate gives a network neutral, post quantum record of authority and conduct t
 
 3. Grant a mandate. The principal signs a mandate naming the agent key, each permitted action with its currency, its limit per action and its total limit, the permitted counterparties if any, and the period of validity. Amounts are whole numbers of minor units, so 150000 in US dollars means 1,500.00 dollars. The mandate is anchored on the Quantova network before the agent first uses it, which proves that the authority existed before any action taken under it.
 
-4. Check before acting. Before the agent executes an action, the application calls authorise with the mandate, the intended action, the amount already spent under the mandate and any revocations it holds. The call returns allowed or refused with the reasons, entirely offline and in microseconds. An action that is refused is never executed.
+4. Check before acting. Before the agent executes an action, the application calls authorise with the mandate, the intended action, the spend ledger of the agent or the amount already spent under the mandate, and any revocations it holds. The call reads the time of the chain and returns a promise of allowed or refused with the reasons. An action that is refused is never executed. A caller may give a time for the decision only within five minutes of the time of the chain, and the amount already spent is never assumed to be 0. The result marks a time given by the caller with atSupplied and reports the time of the chain in chainTime.
 
-5. Sign every action. When the agent executes, it signs an action statement with the action, the amount, the currency, the counterparty and a fingerprint of the private details such as an invoice or a payment instruction. The details themselves never leave the organisation. The application states the amount already spent, and QMandate refuses to sign an action that the mandate does not permit or that a supplied revocation has withdrawn.
+5. Sign every action. When the agent executes, it signs an action statement with the action, the amount, the currency, the counterparty and a fingerprint of the private details such as an invoice or a payment instruction. The details themselves never leave the organisation. Every action carries its number within its scope, the reference of the previous action of that scope and the running total including itself, all under the signature of the agent. act keeps these in a spend ledger, a folder or a store with an atomic compare and swap, and locks it so that concurrent calls from one or many processes can never sign actions that together exceed the total limit. QMandate refuses to sign an action that the mandate does not permit or that a supplied revocation has withdrawn.
 
 6. Anchor on a schedule. A single service with a funded Quantova account anchors new actions in batches. Each action receives its own receipt.
 
@@ -63,11 +63,11 @@ When an envelope is anchored, only a 32 byte Qstamp commitment reaches the chain
 
 1. Keys. Principal and agent keys are 32 byte seeds from which ML-DSA-65 key pairs are derived by the key generation procedure of FIPS 204. A key identifier is the SHA3 hash with a 256 bit output of the ASCII label quantova/qmandate/key/1, the byte 0x00 and the 1952 byte public key.
 
-2. Statements. Each statement is a canonical binary encoding that begins with the ASCII bytes QMDT and the version byte 1, followed by the statement type and its fields in a fixed order. Every field is an unsigned 16 bit big endian length followed by its bytes, and lists are encoded as a count followed by their items, so every statement has exactly one encoding. A mandate encodes the mandate identifier, the principal and agent key identifiers, the agent label, each scope as action, currency, limit per action and total limit, the counterparties, the validity period, the issue time and a note. An action encodes the mandate identifier, the mandate reference, a fresh action identifier, the agent key identifier, the action, currency, amount, counterparty, the fingerprint of the details, the time and a note. A revocation encodes the mandate identifier, the mandate reference, the principal key identifier, the time and a note.
+2. Statements. Each statement is a canonical binary encoding that begins with the ASCII bytes QMDT and a version byte, followed by the statement type and its fields in a fixed order. Every field is an unsigned 16 bit big endian length followed by its bytes, and lists are encoded as a count followed by their items, so every statement has exactly one encoding. A mandate uses the format qmandate/1 and the version byte 1, and encodes the mandate identifier, the principal and agent key identifiers, the agent label, each scope as action, currency, limit per action and total limit, the counterparties, the validity period, the issue time and a note. An action uses the format qmandate/2 and the version byte 2, and encodes the mandate identifier, the mandate reference, a fresh action identifier, the agent key identifier, the action, currency, amount, counterparty, the fingerprint of the details, the time, its number within its scope as decimal text starting at 1, the reference of the previous action of the scope, empty for the first, the running total including this action as decimal text, and a note. A revocation uses the format qmandate/1 and the version byte 1, and encodes the mandate identifier, the mandate reference, the principal key identifier, the time and a note. Actions in the older format qmandate/1 carry no number, previous reference or running total and are still read for verification.
 
 3. Signatures. Statements are signed with ML-DSA-65 in its hedged form under the FIPS 204 context string quantova/qmandate/1. This context separates QMandate signatures from QSign signatures, from Quantova network transactions and from every other use of the algorithm.
 
-4. Mandate reference. Every action names its mandate by the SHA3 hash of the label quantova/qmandate/ref/1, the byte 0x00, the encoded mandate and its signature. An action therefore relies on one exact signed mandate and cannot be moved to another.
+4. Mandate reference. Every action names its mandate by the SHA3 hash of the label quantova/qmandate/ref/1, the byte 0x00, the encoded mandate and its signature. An action therefore relies on one exact signed mandate and cannot be moved to another. The reference of a previous action is computed in the same way from the encoded action and its signature, so the actions of a scope form a hash chain back to the first.
 
 5. Anchor. To anchor an envelope, QMandate stamps the SHA3 hash of the label quantova/qmandate/anchor/1, the byte 0x00, the encoded statement and its signature, as a Qstamp record for mandates and revocations and as an AI agent action for actions.
 
@@ -81,19 +81,27 @@ When an envelope is anchored, only a 32 byte Qstamp commitment reaches the chain
 6. The action falls within the period of validity, judged by its anchor time when it is anchored. A claimed time more than 24 hours before its anchor, a window the verifier may change, or an anchor made after a time of verification that is given, is reported as not proven.
 7. When both are anchored, the mandate was recorded no later than the action.
 8. No revocation signed by the principal was recorded at or before the action.
-9. The running total including this action stays within the total limit. Earlier actions are identified by their full signed content, every anchored copy is checked and the earliest proven time is used, and earlier actions recorded in the same block count unless their order within one anchoring transaction shows otherwise, so a batch of actions cannot exceed the limit together.
-10. The agent did not reuse the identifier of this action for a different action.
-11. When the private details are supplied, they match the fingerprint the agent signed.
+9. The running total the agent signed stays within the total limit. The earlier actions supplied must form an unbroken chain from this action back to action 1 of its scope, each naming the reference of the one before it, numbered one lower, with a running total equal to the total before it plus its own amount. A missing link leaves the result indeterminate and a broken link makes it invalid.
+10. No two different actions of the same scope under the mandate carry the same number up to the number of this action. Two such actions show that the agent signed outside its ledger, so the result is invalid.
+11. The agent did not reuse the identifier of this action for a different action.
+12. When the private details are supplied, they match the fingerprint the agent signed.
+13. When the verifier gives counterpartyKeyId, the action names the counterparty as the word key, a space and that key identifier.
 
-A result is valid only when the expected principal is given, the revocation list and the list of earlier actions are supplied, even if empty, and the mandate and the action are anchored. When any of these is missing the result is indeterminate rather than valid, so a gap in the evidence can never be mistaken for proof. A verifier may accept unanchored envelopes explicitly when it needs to.
+For an action in the older format qmandate/1 the running total is computed from the earlier actions supplied. Earlier actions are identified by their full signed content, every anchored copy is checked and the earliest proven time is used, and earlier actions recorded in the same block count unless their order within one anchoring transaction shows otherwise. Because these actions carry no number or signed total, nothing proves that every earlier action was supplied, and the verifier says so in its notes. When a mandate holds actions in both formats, action 1 of the newer format may start from an opening total, which must cover every older action supplied.
+
+A result is valid only when the expected principal is given, the revocation list and the list of earlier actions are supplied, even if empty, and the mandate and the action are anchored with a proven time. When any of these is missing the result is indeterminate rather than valid, so a gap in the evidence can never be mistaken for proof. A verifier may accept unanchored envelopes explicitly when it needs to.
+
+An anchor counts as proven only when Qstamp reports it proven, which needs at least two pinned independent operators of the network or a light client proof. An anchor confirmed by custom endpoints, or by a single endpoint under trustSingleEndpoint, is reported as unproven and the result is never valid. Verification and act run in strict mode by default. In strict mode an unproven anchor is treated as not anchored, so it can neither prove nor disprove an order of events, and trustSingleEndpoint is refused. With strict set to false the times of unproven anchors are used to order events and the result names them, but it is still never valid.
+
+The agent label, the counterparties of a mandate and the counterparty of an action are text written by the principal and the agent. They are self asserted and are not verified identities, and the verifier says so in its notes. To bind a counterparty to a key identity, the principal lists it as the word key, a space and the 64 character key identifier of the counterparty, the agent names it the same way, and the verifier gives counterpartyKeyId, which the counterparty proves it holds to the payment provider.
 
 A revocation or an earlier action that is not validly signed by the right key is ignored, so no third party can withdraw a mandate or distort a running total. A revocation applies to the mandate identifier, so it withdraws every signed copy of that mandate.
 
 ## Trust model of this release
 
-This release anchors on the live Quantova network Q-test-net-1. The signing module is compiled from the Quantova Q-Crypto library, which follows FIPS 204 and FIPS 202 and has been tested against the NIST vectors and cross checked against an independent implementation. It has not been validated under FIPS 140-3. Anchor times are confirmed by the endpoints a verifier queries and are accepted only when at least two endpoints run by different operators agree. Verification names the endpoints it consulted and says whether they are the official endpoints of the network, and a verifier who needs independence from any single operator should query several independent endpoints.
+This release anchors on the live Quantova network Q-test-net-1. The signing module is compiled from the Quantova Q-Crypto library, which follows FIPS 204 and FIPS 202 and has been tested against the NIST vectors and cross checked against an independent implementation. It has not been validated under FIPS 140-3. An anchor time is accepted only when Qstamp proves the anchor, either by a finality certificate checked against a pinned validator roster or by official endpoints of the network run by two different operators. An anchor confirmed by endpoints of one operator, or by endpoints chosen by the verifier, is reported as unproven and is never valid, whatever options are set. While the network has one official endpoint and no pinned roster every anchor is unproven, which is the honest result. Verification names the endpoints it consulted and says whether they are the official endpoints of the network.
 
-A mandate proves the authority given by a principal key. Matching that key to an accountable person or function is a matter for the organisation, for example through a published key description and its internal approval records. Running totals are complete only when every earlier action under the mandate is supplied to the verifier. A verifier should use the earliest anchored copy of a mandate, because anyone can anchor a further copy later. Text fields accept only visible characters in Unicode normal form C, and amounts are whole numbers of minor units of at most thirty digits. A mandate may last at most ten years.
+A mandate proves the authority given by a principal key. Matching that key to an accountable person or function is a matter for the organisation, for example through a published key description and its internal approval records. A running total is proven complete only when every earlier action of the scope is supplied to the verifier. The ledger stops an honest agent from overspending under concurrency, and the signed number and total make any overspending by an agent that signs outside its ledger visible as a fork, but only to a verifier that is given both branches of the fork. A payment provider that sees one action alone should ask for the earlier actions of its scope. A verifier should use the earliest anchored copy of a mandate, because anyone can anchor a further copy later. Text fields accept only visible characters in Unicode normal form C, and amounts are whole numbers of minor units of at most thirty digits. A mandate may last at most ten years.
 
 ## Installation
 
@@ -112,9 +120,9 @@ qmandate key agent.key > agent.pub.json
 
 qmandate grant --key treasury.key --agent agent.pub.json --agent-label "Supplier payments agent" --scope payment.send,USD,500000,2000000 --counterparty "ACME Supplies Ltd" --valid-until 2027-01-01T00:00:00.000Z --out mandate.json
 
-qmandate check --mandate mandate.json --action payment.send --currency USD --amount 150000 --counterparty "ACME Supplies Ltd" --spent 0
+qmandate check --mandate mandate.json --action payment.send --currency USD --amount 150000 --counterparty "ACME Supplies Ltd" --ledger ledger
 
-qmandate act --key agent.key --mandate mandate.json --action payment.send --currency USD --amount 150000 --counterparty "ACME Supplies Ltd" --details-file invoice.pdf --spent 0 --out action.json
+qmandate act --key agent.key --mandate mandate.json --ledger ledger --action payment.send --currency USD --amount 150000 --counterparty "ACME Supplies Ltd" --details-file invoice.pdf --out action.json
 
 qmandate anchor mandate.json --seed-file account.key
 qmandate anchor action.json --seed-file account.key
@@ -125,7 +133,7 @@ qmandate verify action.json --type action --mandate mandate.json --principal-pub
 qmandate revoke --key treasury.key --mandate mandate.json --note "Agent retired" --out revoke.json
 ```
 
-Verification requires the expected principal and either the revocations and earlier actions or the flags that state there are none. Unanchored envelopes are accepted only with the allow unanchored flag. The command exits with status 0 when the result is valid or the action is allowed, 1 when it is invalid, refused or cannot be read, 2 when it cannot be decided, and 64 for usage errors. Key files must be readable only by their owner and are never followed through symbolic links.
+Verification requires the expected principal and either the revocations and earlier actions or the flags that state there are none. Unanchored envelopes are accepted only with the allow unanchored flag. The command exits with status 0 when the result is valid or the action is allowed, 1 when it is invalid, refused or cannot be read, 2 when it cannot be decided or rests on an unproven anchor, and 64 for usage errors. Key files must be readable only by their owner and are never followed through symbolic links.
 
 ## Programmatic use
 
@@ -140,13 +148,15 @@ const mandate = qm.grant({
   validUntil: '2027-01-01T00:00:00.000Z',
 });
 
-const decision = qm.authorise(mandate, { action: 'payment.send', currency: 'USD', amount: '150000', counterparty: 'ACME Supplies Ltd' }, { spent: '0', revocations });
+const ledger = '/var/lib/agent/ledger';
+
+const decision = await qm.authorise(mandate, { action: 'payment.send', currency: 'USD', amount: '150000', counterparty: 'ACME Supplies Ltd' }, { ledger, revocations, rpc });
 
 if (decision.allowed) {
-  const action = qm.act({ key: agentKey, mandate, action: 'payment.send', currency: 'USD', amount: '150000', counterparty: 'ACME Supplies Ltd', details: invoiceBytes, spent: '0', revocations });
+  const action = await qm.act({ key: agentKey, mandate, ledger, action: 'payment.send', currency: 'USD', amount: '150000', counterparty: 'ACME Supplies Ltd', details: invoiceBytes, revocations, rpc });
 }
 
-const result = await qm.verify(action, { type: 'action', mandate, principalKeyId, priorActions, revocations });
+const result = await qm.verify(action, { type: 'action', mandate, principalKeyId, priorActions, revocations, rpc });
 ```
 
 ## Independent verification procedure
@@ -155,12 +165,14 @@ const result = await qm.verify(action, { type: 'action', mandate, principalKeyId
 2. Compute each key identifier from the label quantova/qmandate/key/1, the byte 0x00 and the public key, and compare it with the signer identifier.
 3. Encode each statement as described above and verify its signature with ML-DSA-65 under the context string quantova/qmandate/1, following FIPS 204.
 4. Compute the mandate reference and confirm the action names it, and confirm the agent and principal identifiers match.
-5. Apply the rules of verification listed above to the scope, limits, counterparty, period, revocations and running total.
+5. Apply the rules of verification listed above to the scope, limits, counterparty, period, revocations, the chain of earlier actions and the running total.
 6. Compute the anchor value of each envelope and verify its receipt by the procedure published with Qstamp, and compare the anchor heights or times as the rules require.
 
 ## Network
 
-The live Quantova network is named Q-test-net-1 with genesis hash ca91e093bb8de33e90db52d7c89876597d14760703793ea7211929e73e613062. Anchors are recorded by the official Qstamp contract on that network. The public endpoint is https://rpc-testnet.quantova.org. Chain data is accepted only when at least two endpoints run by different operators agree. Give them with the rpc or clients option, or with --rpc once for each on the command line. The option trustSingleEndpoint, or --trust-single-endpoint, relies on one endpoint, which can then invent an anchor alone. Decisions about expiry in act, authorise and verify use the time of the finalised chain head read from those endpoints and never the local clock alone, and act and authorise return promises. Agent actions are anchored through the stamp_until entry of the Qstamp contract with the expiry of their mandate, so the chain refuses to anchor an action once the mandate has expired. Anchoring or completing actions therefore needs the mandate option, or --mandate on the command line.
+The live Quantova network is named Q-test-net-1 with genesis hash ca91e093bb8de33e90db52d7c89876597d14760703793ea7211929e73e613062. Anchors are recorded by the official Qstamp contract on that network. The public endpoint is https://rpc-testnet.quantova.org. By default verification consults the official endpoints of the network. Endpoints chosen by the verifier are given with the rpc or clients option, or with --rpc once for each on the command line, and verification consults them only with trustCustomEndpoints, or --trust-custom-endpoints. An endpoint on a loopback address is refused unless allowLoopback, or --allow-loopback, is set, and an endpoint on a private network address unless it is named in endpointAllowList, or with --allow-endpoint. The option expectedSender, or --expect-sender, names the Quantova accounts entitled to anchor records, and an anchor signed by any other account is invalid. Anchoring accepts chain data only when at least two endpoints run by different operators agree, and the option trustSingleEndpoint, or --trust-single-endpoint, relies on one endpoint for anchoring and for the time of the chain. Decisions about expiry in act, authorise and verify use the time of the finalised chain head read from those endpoints and never the local clock alone, and act and authorise return promises. Agent actions are anchored through the stamp_until entry of the Qstamp contract with a deadline that is never later than the expiry of their mandate, so the chain refuses to anchor an action once the mandate has expired. Anchoring or completing actions therefore needs the mandate option, or --mandate on the command line.
+
+The deadline is published on chain in clear. To avoid linking the actions of one mandate through it, QMandate does not publish the expiry itself. While the expiry is more than about two hours away, the deadline is the second full hour after the time of the chain, which depends only on when the batch is anchored and is shared by every batch anchored in that hour. Closer to the expiry, the deadline is the expiry rounded down to the hour, to ten minutes or to the minute, whichever still leaves five minutes to anchor, and only in the last five minutes is it the exact expiry. A verifier accepts any deadline at or before the expiry. Some linkage remains. Batches anchored in the last two hours of a mandate share a deadline derived from its expiry, every anchor shows the account that sent it and that it is an AI agent action, and anchors sent from one account can be linked to each other. Organisations that need actions of different mandates to be unlinkable should anchor them from different accounts.
 
 ## Licence
 

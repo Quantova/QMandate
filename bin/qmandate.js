@@ -18,27 +18,42 @@ const HELP = `qmandate, post quantum mandates for AI agents with Quantova time p
   qmandate key <keyfile>
   qmandate grant --key <principal keyfile> --agent <agent key json> --scope ACTION,CURRENCY,PER,TOTAL ...
                  --valid-until TIME [--valid-from TIME] [--counterparty NAME]... [--agent-label TEXT] [--note TEXT] --out FILE
-  qmandate check --mandate FILE --action ACTION [--currency CODE] [--amount N] [--counterparty NAME] --spent N [--revocation FILE]...
-                 [--at TIME] [--rpc URL]... [--trust-single-endpoint]
-  qmandate act --key <agent keyfile> --mandate FILE --action ACTION [--currency CODE] [--amount N]
-               [--counterparty NAME] [--details-file FILE] --spent N [--revocation FILE]... [--note TEXT] --out FILE
-               [--rpc URL]... [--trust-single-endpoint]
+  qmandate check --mandate FILE --action ACTION [--currency CODE] [--amount N] [--counterparty NAME] (--ledger DIR | --spent N)
+                 [--revocation FILE]... [--at TIME] [--rpc URL]... [--trust-custom-endpoints] [--allow-endpoint HOST]...
+                 [--allow-loopback] [--trust-single-endpoint --no-strict]
+  qmandate act --key <agent keyfile> --mandate FILE --ledger DIR --action ACTION [--currency CODE] [--amount N]
+               [--counterparty NAME] [--details-file FILE] [--spent N] [--revocation FILE]... [--note TEXT] --out FILE
+               [--rpc URL]... [--trust-custom-endpoints] [--allow-endpoint HOST]... [--allow-loopback]
+               [--trust-single-endpoint --no-strict]
   qmandate revoke --key <principal keyfile> --mandate FILE [--note TEXT] --out FILE
-  qmandate anchor <envelope>... --seed-file <file> [--mandate FILE] [--index N] [--rpc URL]... [--trust-single-endpoint] [--max-fee N]
+  qmandate anchor <envelope>... --seed-file <file> [--mandate FILE] [--index N] [--rpc URL]... [--trust-single-endpoint]
+                  [--trust-custom-endpoints] [--allow-endpoint HOST]... [--allow-loopback] [--max-fee N]
   qmandate complete <envelope>... --pending FILE [--mandate FILE] [--tx ID] [--rpc URL]... [--trust-single-endpoint]
+                    [--allow-endpoint HOST]... [--allow-loopback]
   qmandate verify <envelope> --type mandate|action|revoke [--mandate FILE] [--principal-key-id HEX | --principal-public-key FILE]
                   [--revocation FILE... | --no-revocations] [--prior FILE... | --no-prior-actions]
-                  [--details-file FILE] [--allow-unanchored] [--at TIME] [--max-anchor-delay SECONDS]
-                  [--rpc URL]... [--trust-single-endpoint] [--json]
+                  [--details-file FILE] [--counterparty-key-id HEX] [--allow-unanchored] [--at TIME]
+                  [--max-anchor-delay SECONDS] [--expect-sender ADDRESS]... [--rpc URL]... [--trust-custom-endpoints]
+                  [--allow-endpoint HOST]... [--allow-loopback] [--trust-single-endpoint --no-strict] [--json]
 
-Decisions about expiry use the time of the chain, read from at least two independent endpoints given
-with --rpc. --trust-single-endpoint relies on one endpoint, which can then misstate the time alone.
-Anchoring agent actions needs --mandate, and the chain refuses the anchor once the mandate has expired.
+Decisions about expiry use the time of the chain, read from at least two independent endpoints. Endpoints
+given with --rpc are used for the time and by verify only with --trust-custom-endpoints, loopback endpoints
+only with --allow-loopback and private network endpoints only when named with --allow-endpoint.
+--trust-single-endpoint relies on one endpoint, which can then misstate the time alone, so it is refused
+unless --no-strict is given, and a result that rests on it is never VALID. An anchor counts only when it is
+proven by a finality certificate or by official endpoints of two different operators, any other anchor is
+UNPROVEN and never VALID. --expect-sender names the account that must have signed each anchor.
+act numbers every action of a scope and keeps the running total in the spend ledger folder given with
+--ledger, locked so that concurrent agents can never exceed the total limit. --spent states the amount
+spent before the ledger was first used for that mandate and action.
+Anchoring agent actions needs --mandate, and the chain refuses the anchor once its deadline, which is
+never later than the expiry of the mandate, has passed.
 
 Amounts are whole numbers of minor units, for example 150000 for 1,500.00 USD. A scope without
 a currency is written ACTION,,0,0 and permits the action with no amount.
 
-Exit codes are 0 for valid or allowed, 1 for invalid, refused or an error, 2 for indeterminate and 64 for usage errors.`;
+Exit codes are 0 for valid or allowed, 1 for invalid, refused or an error, 2 for indeterminate or unproven
+and 64 for usage errors.`;
 
 function usageError(message) {
   const e = new Error(message);
@@ -50,12 +65,12 @@ const SPEC = {
   keygen: { flags: ['force'], values: [] },
   key: { flags: [], values: [] },
   grant: { flags: ['force'], values: ['key', 'agent', 'valid-until', 'valid-from', 'agent-label', 'note', 'out'], multi: ['scope', 'counterparty'] },
-  check: { flags: ['trust-single-endpoint'], values: ['mandate', 'action', 'currency', 'amount', 'counterparty', 'spent', 'at'], multi: ['revocation', 'rpc'] },
-  act: { flags: ['force', 'trust-single-endpoint'], values: ['key', 'mandate', 'action', 'currency', 'amount', 'counterparty', 'details-file', 'spent', 'note', 'out'], multi: ['revocation', 'rpc'] },
+  check: { flags: ['trust-single-endpoint', 'trust-custom-endpoints', 'allow-loopback', 'no-strict'], values: ['mandate', 'action', 'currency', 'amount', 'counterparty', 'spent', 'ledger', 'at'], multi: ['revocation', 'rpc', 'allow-endpoint'] },
+  act: { flags: ['force', 'trust-single-endpoint', 'trust-custom-endpoints', 'allow-loopback', 'no-strict'], values: ['key', 'mandate', 'ledger', 'action', 'currency', 'amount', 'counterparty', 'details-file', 'spent', 'note', 'out'], multi: ['revocation', 'rpc', 'allow-endpoint'] },
   revoke: { flags: ['force'], values: ['key', 'mandate', 'note', 'out'] },
-  anchor: { flags: ['trust-single-endpoint'], values: ['seed-file', 'index', 'max-fee', 'mandate'], multi: ['rpc'] },
-  complete: { flags: ['trust-single-endpoint'], values: ['pending', 'tx', 'mandate'], multi: ['rpc'] },
-  verify: { flags: ['allow-unanchored', 'no-revocations', 'no-prior-actions', 'json', 'trust-single-endpoint'], values: ['type', 'mandate', 'principal-key-id', 'principal-public-key', 'details-file', 'at', 'max-anchor-delay'], multi: ['revocation', 'prior', 'rpc'] },
+  anchor: { flags: ['trust-single-endpoint', 'trust-custom-endpoints', 'allow-loopback'], values: ['seed-file', 'index', 'max-fee', 'mandate'], multi: ['rpc', 'allow-endpoint'] },
+  complete: { flags: ['trust-single-endpoint', 'allow-loopback'], values: ['pending', 'tx', 'mandate'], multi: ['rpc', 'allow-endpoint'] },
+  verify: { flags: ['allow-unanchored', 'no-revocations', 'no-prior-actions', 'json', 'trust-single-endpoint', 'trust-custom-endpoints', 'allow-loopback', 'no-strict'], values: ['type', 'mandate', 'principal-key-id', 'principal-public-key', 'counterparty-key-id', 'details-file', 'at', 'max-anchor-delay'], multi: ['revocation', 'prior', 'rpc', 'allow-endpoint', 'expect-sender'] },
 };
 
 function parse(command, argv) {
@@ -263,8 +278,12 @@ async function withSeedAsync(file, what, fn) {
 }
 
 function endpoints(flags) {
-  const out = { trustSingleEndpoint: !!flags['trust-single-endpoint'] };
+  const out = { trustSingleEndpoint: !!flags['trust-single-endpoint'], strict: !flags['no-strict'] };
   if (flags.rpc) out.clients = flags.rpc;
+  if (flags['allow-endpoint']) out.endpointAllowList = flags['allow-endpoint'];
+  if (flags['trust-custom-endpoints']) out.trustCustomEndpoints = true;
+  if (flags['allow-loopback']) out.allowLoopback = true;
+  if (flags['expect-sender']) out.expectedSender = flags['expect-sender'];
   return out;
 }
 
@@ -348,7 +367,8 @@ async function cmdCheck(positional, flags) {
   if (positional.length) throw usageError('check takes options only');
   const mandate = readJson(need(flags, 'mandate'), 'mandate', true);
   const revocations = (flags.revocation || []).map((f) => readJson(f, 'revocation'));
-  const res = await qm.authorise(mandate, { action: need(flags, 'action'), currency: flags.currency, amount: flags.amount, counterparty: flags.counterparty }, Object.assign({ spent: need(flags, 'spent'), revocations, at: flags.at }, endpoints(flags)));
+  if (flags.ledger === undefined && flags.spent === undefined) throw usageError('give --ledger with the spend ledger folder, or --spent with the amount already spent');
+  const res = await qm.authorise(mandate, { action: need(flags, 'action'), currency: flags.currency, amount: flags.amount, counterparty: flags.counterparty }, Object.assign({ spent: flags.spent, ledger: flags.ledger, revocations, at: flags.at }, endpoints(flags)));
   if (res.allowed) console.log('ALLOWED');
   else {
     for (const r of res.reasons) console.log('refused  ' + safe(r));
@@ -364,11 +384,11 @@ async function cmdAct(positional, flags) {
   const details = flags['details-file'] !== undefined ? readDetails(flags['details-file']) : undefined;
   const revocations = (flags.revocation || []).map((f) => readJson(f, 'revocation'));
   const env = await withSeedAsync(need(flags, 'key'), '--key', (seed) => qm.act(Object.assign({
-    key: seed, mandate, action: need(flags, 'action'), currency: flags.currency, amount: flags.amount,
-    counterparty: flags.counterparty, details, spent: need(flags, 'spent'), note: flags.note, revocations,
+    key: seed, mandate, ledger: need(flags, 'ledger'), action: need(flags, 'action'), currency: flags.currency, amount: flags.amount,
+    counterparty: flags.counterparty, details, spent: flags.spent, note: flags.note, revocations,
   }, endpoints(flags))));
   writeEnvelope(out, env, flags.force);
-  console.log('action ' + env.statement.actionId + ' signed under mandate ' + env.statement.mandateId + ', written to ' + safe(out));
+  console.log('action ' + env.statement.actionId + ' number ' + env.statement.sequence + ' signed under mandate ' + env.statement.mandateId + ', running total ' + env.statement.total + ', written to ' + safe(out));
   return 0;
 }
 
@@ -473,6 +493,10 @@ async function cmdVerify(positional, flags) {
   opts.type = flags.type;
   if (opts.type !== 'mandate' && opts.mandate === undefined) throw usageError('--mandate is required to verify an ' + (opts.type === 'action' ? 'action' : 'revocation'));
   if (flags['principal-key-id'] !== undefined) opts.principalKeyId = flags['principal-key-id'];
+  if (flags['counterparty-key-id'] !== undefined) {
+    if (!/^[0-9a-f]{64}$/.test(flags['counterparty-key-id'])) throw usageError('--counterparty-key-id is 64 lowercase hex characters');
+    opts.counterpartyKeyId = flags['counterparty-key-id'];
+  }
   if (flags['principal-public-key'] !== undefined) {
     const desc = readJson(flags['principal-public-key'], 'principal key');
     if (!desc || desc.format !== 'qmandate-key/1' || typeof desc.publicKey !== 'string') throw usageError('the principal key file is not a qmandate-key/1 description');
@@ -489,14 +513,15 @@ async function cmdVerify(positional, flags) {
     process.stdout.write(asciiJson(res) + '\n');
   } else {
     if (res.type) console.log('type  ' + res.type);
-    for (const c of res.checks) console.log((c.ok ? 'ok    ' : c.transport ? 'retry ' : c.indeterminate ? 'open  ' : 'FAIL  ') + safe(c.name) + '  ' + safe(c.detail));
+    for (const c of res.checks) console.log((c.ok ? 'ok    ' : c.transport ? 'retry ' : c.indeterminate || c.unproven ? 'open  ' : 'FAIL  ') + safe(c.name) + '  ' + safe(c.detail));
+    for (const n of res.notes || []) console.log('note  ' + safe(n));
     if ((res.endpoints || []).length) {
       console.log('endpoints  ' + res.endpoints.map(safe).join(', '));
-      if (res.officialEndpoints === false) console.log('notice  anchor times were confirmed by an endpoint that is not the official one for this network, so they are only as reliable as that endpoint');
+      if (res.officialEndpoints === false) console.log('notice  endpoints other than the official ones of this network were consulted, an anchor confirmed only by them is not proven');
     }
     console.log(res.status.toUpperCase());
   }
-  return res.status === 'valid' ? 0 : res.status === 'indeterminate' ? 2 : 1;
+  return res.status === 'valid' ? 0 : res.status === 'indeterminate' || res.status === 'unproven' ? 2 : 1;
 }
 
 async function main() {

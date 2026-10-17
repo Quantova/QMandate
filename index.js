@@ -6,6 +6,7 @@
 const M = require('./lib/mandate');
 const { verify } = require('./lib/verify');
 const F = require('./lib/format');
+const Ledger = require('./lib/ledger');
 
 module.exports = {
   generateKey: M.generateKey,
@@ -19,9 +20,11 @@ module.exports = {
   anchor: M.anchor,
   complete: M.complete,
   verify,
+  fileLedger: Ledger.fileLedger,
   mandateRef: (mandate) => F.refOf(M.mandateOf(mandate)),
   anchorDigest: (envelope) => F.anchorDigest(F.parse(envelope)).toString('hex'),
   FORMAT: F.FORMAT,
+  ACTION_FORMAT: F.ACTION_FORMAT,
   ALGORITHM: F.ALGORITHM,
   TYPES: F.TYPES,
 };
