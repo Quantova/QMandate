@@ -19,14 +19,21 @@ const HELP = `qmandate, post quantum mandates for AI agents with Quantova time p
   qmandate grant --key <principal keyfile> --agent <agent key json> --scope ACTION,CURRENCY,PER,TOTAL ...
                  --valid-until TIME [--valid-from TIME] [--counterparty NAME]... [--agent-label TEXT] [--note TEXT] --out FILE
   qmandate check --mandate FILE --action ACTION [--currency CODE] [--amount N] [--counterparty NAME] --spent N [--revocation FILE]...
+                 [--at TIME] [--rpc URL]... [--trust-single-endpoint]
   qmandate act --key <agent keyfile> --mandate FILE --action ACTION [--currency CODE] [--amount N]
                [--counterparty NAME] [--details-file FILE] --spent N [--revocation FILE]... [--note TEXT] --out FILE
+               [--rpc URL]... [--trust-single-endpoint]
   qmandate revoke --key <principal keyfile> --mandate FILE [--note TEXT] --out FILE
-  qmandate anchor <envelope>... --seed-file <file> [--index N] [--rpc URL] [--max-fee N]
-  qmandate complete <envelope>... --pending FILE [--tx ID] [--rpc URL]
+  qmandate anchor <envelope>... --seed-file <file> [--mandate FILE] [--index N] [--rpc URL]... [--trust-single-endpoint] [--max-fee N]
+  qmandate complete <envelope>... --pending FILE [--mandate FILE] [--tx ID] [--rpc URL]... [--trust-single-endpoint]
   qmandate verify <envelope> --type mandate|action|revoke [--mandate FILE] [--principal-key-id HEX | --principal-public-key FILE]
                   [--revocation FILE... | --no-revocations] [--prior FILE... | --no-prior-actions]
-                  [--details-file FILE] [--allow-unanchored] [--at TIME] [--max-anchor-delay SECONDS] [--rpc URL] [--json]
+                  [--details-file FILE] [--allow-unanchored] [--at TIME] [--max-anchor-delay SECONDS]
+                  [--rpc URL]... [--trust-single-endpoint] [--json]
+
+Decisions about expiry use the time of the chain, read from at least two independent endpoints given
+with --rpc. --trust-single-endpoint relies on one endpoint, which can then misstate the time alone.
+Anchoring agent actions needs --mandate, and the chain refuses the anchor once the mandate has expired.
 
 Amounts are whole numbers of minor units, for example 150000 for 1,500.00 USD. A scope without
 a currency is written ACTION,,0,0 and permits the action with no amount.
@@ -43,12 +50,12 @@ const SPEC = {
   keygen: { flags: ['force'], values: [] },
   key: { flags: [], values: [] },
   grant: { flags: ['force'], values: ['key', 'agent', 'valid-until', 'valid-from', 'agent-label', 'note', 'out'], multi: ['scope', 'counterparty'] },
-  check: { flags: [], values: ['mandate', 'action', 'currency', 'amount', 'counterparty', 'spent'], multi: ['revocation'] },
-  act: { flags: ['force'], values: ['key', 'mandate', 'action', 'currency', 'amount', 'counterparty', 'details-file', 'spent', 'note', 'out'], multi: ['revocation'] },
+  check: { flags: ['trust-single-endpoint'], values: ['mandate', 'action', 'currency', 'amount', 'counterparty', 'spent', 'at'], multi: ['revocation', 'rpc'] },
+  act: { flags: ['force', 'trust-single-endpoint'], values: ['key', 'mandate', 'action', 'currency', 'amount', 'counterparty', 'details-file', 'spent', 'note', 'out'], multi: ['revocation', 'rpc'] },
   revoke: { flags: ['force'], values: ['key', 'mandate', 'note', 'out'] },
-  anchor: { flags: [], values: ['seed-file', 'index', 'rpc', 'max-fee'] },
-  complete: { flags: [], values: ['pending', 'tx', 'rpc'] },
-  verify: { flags: ['allow-unanchored', 'no-revocations', 'no-prior-actions', 'json'], values: ['type', 'mandate', 'principal-key-id', 'principal-public-key', 'details-file', 'rpc', 'at', 'max-anchor-delay'], multi: ['revocation', 'prior'] },
+  anchor: { flags: ['trust-single-endpoint'], values: ['seed-file', 'index', 'max-fee', 'mandate'], multi: ['rpc'] },
+  complete: { flags: ['trust-single-endpoint'], values: ['pending', 'tx', 'mandate'], multi: ['rpc'] },
+  verify: { flags: ['allow-unanchored', 'no-revocations', 'no-prior-actions', 'json', 'trust-single-endpoint'], values: ['type', 'mandate', 'principal-key-id', 'principal-public-key', 'details-file', 'at', 'max-anchor-delay'], multi: ['revocation', 'prior', 'rpc'] },
 };
 
 function parse(command, argv) {
@@ -246,6 +253,21 @@ function withSeed(file, what, fn) {
   }
 }
 
+async function withSeedAsync(file, what, fn) {
+  const seed = readSeed(file, what);
+  try {
+    return await fn(seed);
+  } finally {
+    seed.fill(0);
+  }
+}
+
+function endpoints(flags) {
+  const out = { trustSingleEndpoint: !!flags['trust-single-endpoint'] };
+  if (flags.rpc) out.clients = flags.rpc;
+  return out;
+}
+
 async function cmdKeygen(positional, flags) {
   if (positional.length !== 1) throw usageError('keygen takes one key file path');
   const seed = qm.generateKey();
@@ -326,7 +348,7 @@ async function cmdCheck(positional, flags) {
   if (positional.length) throw usageError('check takes options only');
   const mandate = readJson(need(flags, 'mandate'), 'mandate', true);
   const revocations = (flags.revocation || []).map((f) => readJson(f, 'revocation'));
-  const res = qm.authorise(mandate, { action: need(flags, 'action'), currency: flags.currency, amount: flags.amount, counterparty: flags.counterparty }, { spent: need(flags, 'spent'), revocations });
+  const res = await qm.authorise(mandate, { action: need(flags, 'action'), currency: flags.currency, amount: flags.amount, counterparty: flags.counterparty }, Object.assign({ spent: need(flags, 'spent'), revocations, at: flags.at }, endpoints(flags)));
   if (res.allowed) console.log('ALLOWED');
   else {
     for (const r of res.reasons) console.log('refused  ' + safe(r));
@@ -340,11 +362,11 @@ async function cmdAct(positional, flags) {
   const out = need(flags, 'out');
   const mandate = readJson(need(flags, 'mandate'), 'mandate', true);
   const details = flags['details-file'] !== undefined ? readDetails(flags['details-file']) : undefined;
-  const env = withSeed(need(flags, 'key'), '--key', (seed) => qm.act({
+  const revocations = (flags.revocation || []).map((f) => readJson(f, 'revocation'));
+  const env = await withSeedAsync(need(flags, 'key'), '--key', (seed) => qm.act(Object.assign({
     key: seed, mandate, action: need(flags, 'action'), currency: flags.currency, amount: flags.amount,
-    counterparty: flags.counterparty, details, spent: need(flags, 'spent'), note: flags.note,
-    revocations: (flags.revocation || []).map((f) => readJson(f, 'revocation')),
-  }));
+    counterparty: flags.counterparty, details, spent: need(flags, 'spent'), note: flags.note, revocations,
+  }, endpoints(flags))));
   writeEnvelope(out, env, flags.force);
   console.log('action ' + env.statement.actionId + ' signed under mandate ' + env.statement.mandateId + ', written to ' + safe(out));
   return 0;
@@ -379,6 +401,7 @@ async function cmdAnchor(positional, flags) {
   }
   const pendingFile = pendingPath(positional[0]);
   const envs = positional.map((f) => readJson(f, 'envelope', true));
+  const mandate = flags.mandate !== undefined ? readJson(flags.mandate, 'mandate', true) : undefined;
   let index = 0;
   if (flags.index !== undefined) {
     if (!/^\d{1,9}$/.test(flags.index)) throw usageError('--index is a whole number');
@@ -393,7 +416,7 @@ async function cmdAnchor(positional, flags) {
   };
   let anchored;
   try {
-    anchored = await qm.anchor(envs, { seed, index, network: 'testnet', rpc: flags.rpc, maxFee: flags['max-fee'], onPending: keep });
+    anchored = await qm.anchor(envs, Object.assign({ seed, index, network: 'testnet', mandate, maxFee: flags['max-fee'], onPending: keep }, endpoints(flags)));
   } catch (e) {
     if (e && e.pending && typeof e.pending === 'object') {
       try {
@@ -423,7 +446,8 @@ async function cmdComplete(positional, flags) {
     if (pending && typeof pending === 'object') pending.tx = flags.tx;
   }
   const envs = positional.map((f) => readJson(f, 'envelope', true));
-  const anchored = await qm.complete(envs, pending, { rpc: flags.rpc });
+  const mandate = flags.mandate !== undefined ? readJson(flags.mandate, 'mandate', true) : undefined;
+  const anchored = await qm.complete(envs, pending, Object.assign({ mandate }, endpoints(flags)));
   saveAnchored(positional, anchored);
   fs.rmSync(flags.pending, { force: true });
   for (const f of positional) fs.rmSync(pendingPath(f), { force: true });
@@ -459,7 +483,7 @@ async function cmdVerify(positional, flags) {
   if (flags.prior) opts.priorActions = flags.prior.map((f) => readJson(f, 'prior action'));
   if (flags['no-prior-actions']) opts.priorActions = [];
   if (flags['details-file'] !== undefined) opts.details = readDetails(flags['details-file']);
-  if (flags.rpc) opts.rpc = flags.rpc;
+  Object.assign(opts, endpoints(flags));
   const res = await qm.verify(env, opts);
   if (flags.json) {
     process.stdout.write(asciiJson(res) + '\n');

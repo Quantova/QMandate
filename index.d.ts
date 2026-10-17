@@ -45,8 +45,18 @@ export interface ActionRequest {
   counterparty?: string;
 }
 
-export interface AuthoriseOptions {
+export interface EndpointOptions {
+  network?: 'testnet';
+  rpc?: string | string[];
+  client?: unknown;
+  clients?: Array<string | unknown>;
+  trustSingleEndpoint?: boolean;
+  clockSlackMs?: number;
+}
+
+export interface AuthoriseOptions extends EndpointOptions {
   at?: string;
+  revocations?: Envelope[];
   spent?: string;
   agentKeyId?: string;
   principalKeyId?: string;
@@ -61,8 +71,9 @@ export interface AuthoriseResult {
   at: string;
 }
 
-export interface ActOptions extends ActionRequest {
+export interface ActOptions extends ActionRequest, EndpointOptions {
   key: Uint8Array;
+  revocations?: Envelope[];
   mandate: Envelope;
   details?: Uint8Array;
   detailsDigest?: string;
@@ -78,12 +89,10 @@ export interface RevokeOptions {
   note?: string;
 }
 
-export interface AnchorOptions {
+export interface AnchorOptions extends EndpointOptions {
   seed: Uint8Array;
   index: number;
-  network?: 'testnet';
-  rpc?: string;
-  client?: unknown;
+  mandate?: Envelope;
   meter?: number;
   maxFee?: string | number;
   timeoutMs?: number;
@@ -102,9 +111,10 @@ export interface VerifyOptions {
   requireAnchor?: boolean;
   maxAnchorDelay?: number;
   at?: string;
-  rpc?: string;
+  rpc?: string | string[];
   client?: unknown;
   clients?: Array<string | unknown>;
+  trustSingleEndpoint?: boolean;
   contract?: string;
   trustCustomContract?: boolean;
 }
@@ -132,11 +142,11 @@ export function publicKey(key: Uint8Array): Uint8Array;
 export function keyId(key: Uint8Array): string;
 export function describeKey(key: Uint8Array): KeyDescription;
 export function grant(options: GrantOptions): Envelope;
-export function authorise(mandate: Envelope, request: ActionRequest, options?: AuthoriseOptions): AuthoriseResult;
-export function act(options: ActOptions): Envelope;
+export function authorise(mandate: Envelope, request: ActionRequest, options?: AuthoriseOptions): Promise<AuthoriseResult>;
+export function act(options: ActOptions): Promise<Envelope>;
 export function revoke(options: RevokeOptions): Envelope;
 export function anchor(envelopes: Envelope | Envelope[], options: AnchorOptions): Promise<Envelope[]>;
-export function complete(envelopes: Envelope | Envelope[], pending: unknown, options?: { rpc?: string; client?: unknown; timeoutMs?: number }): Promise<Envelope[]>;
+export function complete(envelopes: Envelope | Envelope[], pending: unknown, options?: EndpointOptions & { mandate?: Envelope; timeoutMs?: number }): Promise<Envelope[]>;
 export function verify(envelope: unknown, options: VerifyOptions): Promise<VerifyResult>;
 export function mandateRef(mandate: Envelope): string;
 export function anchorDigest(envelope: Envelope): string;

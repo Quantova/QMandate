@@ -1,6 +1,6 @@
 {
   "name": "@quantovainc/qmandate",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Post quantum mandates for AI agents. Proves who authorised an agent, within which limits, and that every action stayed inside that authority, with ML-DSA-65 under FIPS 204 and Quantova time proofs.",
   "main": "index.js",
   "types": "index.d.ts",
@@ -31,7 +31,7 @@
     "node": ">=20"
   },
   "dependencies": {
-    "@quantovainc/qstamp": "0.1.6"
+    "@quantovainc/qstamp": "0.2.0"
   },
   "keywords": [
     "post-quantum",
