@@ -1,0 +1,38 @@
+# Copyright 2026 Quantova Inc
+# SPDX-License-Identifier: Apache-2.0 OR MIT
+
+name: ci
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  sdk:
+    uses: Quantova/Quantova-Ci/.github/workflows/npm-wasm-sdk.yml@b4422a7ba5ffaa6e71a513eb8da3a743059859cb
+    permissions:
+      contents: read
+      id-token: write
+    with:
+      test-command: |
+        set -euo pipefail
+        case "$GITHUB_REF" in
+          refs/tags/*) ;;
+          *)
+            src="$RUNNER_TEMP/qstamp"
+            git init -q "$src"
+            git -C "$src" fetch -q --depth 1 https://github.com/Quantova/QStamp.git 04fc59f41b665a73ec4419e769d91ba0b55f15fd
+            git -C "$src" checkout -q FETCH_HEAD
+            (cd "$src" && npm pack --ignore-scripts --pack-destination "$RUNNER_TEMP")
+            npm install --no-save --ignore-scripts "$RUNNER_TEMP"/quantovainc-qstamp-*.tgz
+            ;;
+        esac
+        npm test
+    secrets:
+      NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
