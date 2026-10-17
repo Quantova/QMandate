@@ -88,23 +88,25 @@ function makeChain(sdkDir, opts) {
   function submitCall(from, to, argsHex) {
     const raw = Buffer.from(argsHex, 'hex');
     const sel = raw.subarray(0, 4).toString('hex');
-    const words = raw.subarray(124);
     const blk = newBlock(chain.nextBlockTime === null ? undefined : chain.nextBlockTime);
     chain.nextBlockTime = null;
     const txId = encode('QTX', crypto.randomBytes(32));
     let ok = true;
     let eventSel;
     let data;
+    const read = (where, role, width) => raw.subarray(4 + where.at[role], 4 + where.at[role] + width);
     if (sel === wire.STAMP_UNTIL_SELECTOR) {
-      const until = Number(words.readBigUInt64BE(0));
-      const anchored = words.subarray(8, 40);
-      const kind = words.readBigUInt64BE(40).toString();
+      const where = wire.LAYOUTS.stampUntil;
+      const until = Number(read(where, 'until', 8).readBigUInt64BE(0));
+      const anchored = Buffer.concat([read(where, 'hi', 16), read(where, 'lo', 16)]);
+      const kind = read(where, 'kind', 8).readBigUInt64BE(0).toString();
       if (blk.time > until) ok = false;
       eventSel = wire.STAMPED_UNTIL_SELECTOR;
       data = wire.stampedEventData(from, anchored, kind, until);
     } else {
-      const anchored = words.subarray(0, 32);
-      const kind = words.readBigUInt64BE(32).toString();
+      const where = wire.LAYOUTS.stamp;
+      const anchored = Buffer.concat([read(where, 'hi', 16), read(where, 'lo', 16)]);
+      const kind = read(where, 'kind', 8).readBigUInt64BE(0).toString();
       eventSel = wire.STAMPED_SELECTOR;
       data = wire.stampedEventData(from, anchored, kind);
     }
