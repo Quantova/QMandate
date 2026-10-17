@@ -78,7 +78,7 @@ When an envelope is anchored, only a 32 byte Qstamp commitment reaches the chain
 3. The action names the exact mandate by its reference, and the mandate names the agent that signed the action.
 4. The action is listed in the mandate, in the permitted currency and within the limit per action.
 5. The counterparty is permitted when the mandate lists counterparties.
-6. The action falls within the period of validity, judged by its anchor time when it is anchored.
+6. The action falls within the period of validity, judged by its anchor time when it is anchored. A claimed time more than 24 hours before its anchor, a window the verifier may change, or an anchor made after a time of verification that is given, is reported as not proven.
 7. When both are anchored, the mandate was recorded no later than the action.
 8. No revocation signed by the principal was recorded at or before the action.
 9. The running total including this action stays within the total limit. Earlier actions are identified by their full signed content, every anchored copy is checked and the earliest proven time is used, and earlier actions recorded in the same block count unless their order within one anchoring transaction shows otherwise, so a batch of actions cannot exceed the limit together.
@@ -91,7 +91,7 @@ A revocation or an earlier action that is not validly signed by the right key is
 
 ## Trust model of this release
 
-This release targets the Quantova test network. Anchors on that network carry no evidential weight. The signing module is compiled from the Quantova Q-Crypto library, which follows FIPS 204 and FIPS 202 and has been tested against the NIST vectors and cross checked against an independent implementation, but has not yet been independently audited or validated under FIPS 140-3.
+This release anchors on the live Quantova network Q-test-net-1. The signing module is compiled from the Quantova Q-Crypto library, which follows FIPS 204 and FIPS 202 and has been tested against the NIST vectors and cross checked against an independent implementation. It has not been validated under FIPS 140-3. Anchor times are confirmed by the endpoints a verifier queries, so a time is only as reliable as those endpoints. Verification names the endpoints it consulted and says whether they are the official endpoints of the network, and a verifier who needs independence from any single operator should query several independent endpoints.
 
 A mandate proves the authority given by a principal key. Matching that key to an accountable person or function is a matter for the organisation, for example through a published key description and its internal approval records. Running totals are complete only when every earlier action under the mandate is supplied to the verifier. A verifier should use the earliest anchored copy of a mandate, because anyone can anchor a further copy later. Text fields accept only visible characters in Unicode normal form C, and amounts are whole numbers of minor units of at most thirty digits. A mandate may last at most ten years.
 
@@ -118,6 +118,7 @@ qmandate act --key agent.key --mandate mandate.json --action payment.send --curr
 
 qmandate anchor mandate.json --seed-file account.key
 qmandate anchor action.json --seed-file account.key
+qmandate complete action.json --pending action.json.pending.json
 
 qmandate verify action.json --type action --mandate mandate.json --principal-public-key treasury.pub.json --details-file invoice.pdf --no-revocations --no-prior-actions
 
@@ -159,7 +160,7 @@ const result = await qm.verify(action, { type: 'action', mandate, principalKeyId
 
 ## Network
 
-The Quantova test network is named Q-test-net-1 with genesis hash ca91e093bb8de33e90db52d7c89876597d14760703793ea7211929e73e613062. Anchors are recorded by the official Qstamp contract on that network. The public endpoint is https://rpc-testnet.quantova.org.
+The live Quantova network is named Q-test-net-1 with genesis hash ca91e093bb8de33e90db52d7c89876597d14760703793ea7211929e73e613062. Anchors are recorded by the official Qstamp contract on that network. The public endpoint is https://rpc-testnet.quantova.org.
 
 ## Licence
 

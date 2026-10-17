@@ -17,6 +17,7 @@ module.exports = {
   act: M.act,
   revoke: M.revoke,
   anchor: M.anchor,
+  complete: M.complete,
   verify,
   mandateRef: (mandate) => F.refOf(M.mandateOf(mandate)),
   anchorDigest: (envelope) => F.anchorDigest(F.parse(envelope)).toString('hex'),

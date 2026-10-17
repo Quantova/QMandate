@@ -23,9 +23,10 @@ const HELP = `qmandate, post quantum mandates for AI agents with Quantova time p
                [--counterparty NAME] [--details-file FILE] --spent N [--revocation FILE]... [--note TEXT] --out FILE
   qmandate revoke --key <principal keyfile> --mandate FILE [--note TEXT] --out FILE
   qmandate anchor <envelope>... --seed-file <file> [--index N] [--rpc URL] [--max-fee N]
+  qmandate complete <envelope>... --pending FILE [--tx ID] [--rpc URL]
   qmandate verify <envelope> --type mandate|action|revoke [--mandate FILE] [--principal-key-id HEX | --principal-public-key FILE]
                   [--revocation FILE... | --no-revocations] [--prior FILE... | --no-prior-actions]
-                  [--details-file FILE] [--allow-unanchored] [--at TIME] [--rpc URL] [--json]
+                  [--details-file FILE] [--allow-unanchored] [--at TIME] [--max-anchor-delay SECONDS] [--rpc URL] [--json]
 
 Amounts are whole numbers of minor units, for example 150000 for 1,500.00 USD. A scope without
 a currency is written ACTION,,0,0 and permits the action with no amount.
@@ -46,7 +47,8 @@ const SPEC = {
   act: { flags: ['force'], values: ['key', 'mandate', 'action', 'currency', 'amount', 'counterparty', 'details-file', 'spent', 'note', 'out'], multi: ['revocation'] },
   revoke: { flags: ['force'], values: ['key', 'mandate', 'note', 'out'] },
   anchor: { flags: [], values: ['seed-file', 'index', 'rpc', 'max-fee'] },
-  verify: { flags: ['allow-unanchored', 'no-revocations', 'no-prior-actions', 'json'], values: ['type', 'mandate', 'principal-key-id', 'principal-public-key', 'details-file', 'rpc', 'at'], multi: ['revocation', 'prior'] },
+  complete: { flags: [], values: ['pending', 'tx', 'rpc'] },
+  verify: { flags: ['allow-unanchored', 'no-revocations', 'no-prior-actions', 'json'], values: ['type', 'mandate', 'principal-key-id', 'principal-public-key', 'details-file', 'rpc', 'at', 'max-anchor-delay'], multi: ['revocation', 'prior'] },
 };
 
 function parse(command, argv) {
@@ -358,8 +360,24 @@ async function cmdRevoke(positional, flags) {
   return 0;
 }
 
+function pendingPath(file) {
+  return file + '.pending.json';
+}
+
+function saveAnchored(files, anchored) {
+  anchored.forEach((env, i) => {
+    writeEnvelope(files[i], env, true);
+    console.log('anchored ' + safe(files[i]) + ' in transaction ' + env.anchor.anchor.tx);
+  });
+}
+
 async function cmdAnchor(positional, flags) {
   if (positional.length === 0) throw usageError('anchor takes one or more envelopes');
+  if (new Set(positional.map((f) => path.resolve(f))).size !== positional.length) throw usageError('each envelope may be given once');
+  for (const f of positional) {
+    if (statOf(pendingPath(f))) throw usageError('an unfinished anchor exists in ' + safe(pendingPath(f)) + ', finish it with complete first');
+  }
+  const pendingFile = pendingPath(positional[0]);
   const envs = positional.map((f) => readJson(f, 'envelope', true));
   let index = 0;
   if (flags.index !== undefined) {
@@ -367,16 +385,48 @@ async function cmdAnchor(positional, flags) {
     index = Number(flags.index);
   }
   const seed = readSeed(flags['seed-file'] || process.env.QSTAMP_SEED_FILE, '--seed-file of a funded Quantova account');
+  let saved = false;
+  const keep = (pending) => {
+    const text = asciiJson(pending) + '\n';
+    for (const f of positional) atomicWrite(pendingPath(f), text, saved);
+    saved = true;
+  };
   let anchored;
   try {
-    anchored = await qm.anchor(envs, { seed, index, network: 'testnet', rpc: flags.rpc, maxFee: flags['max-fee'] });
+    anchored = await qm.anchor(envs, { seed, index, network: 'testnet', rpc: flags.rpc, maxFee: flags['max-fee'], onPending: keep });
+  } catch (e) {
+    if (e && e.pending && typeof e.pending === 'object') {
+      try {
+        keep(e.pending);
+        e.message += ', the pending stamp was saved in ' + safe(pendingFile) + ', finish it with qmandate complete ' + positional.map(safe).join(' ') + ' --pending ' + safe(pendingFile);
+      } catch (e2) {
+        e.message += ', the pending stamp follows on standard output, keep it to finish the anchor';
+        process.stdout.write(asciiJson(e.pending) + '\n');
+      }
+    }
+    throw e;
   } finally {
     seed.fill(0);
   }
-  anchored.forEach((env, i) => {
-    writeEnvelope(positional[i], env, true);
-    console.log('anchored ' + safe(positional[i]) + ' in transaction ' + env.anchor.anchor.tx);
-  });
+  saveAnchored(positional, anchored);
+  if (saved) for (const f of positional) fs.rmSync(pendingPath(f), { force: true });
+  return 0;
+}
+
+async function cmdComplete(positional, flags) {
+  if (positional.length === 0) throw usageError('complete takes the envelopes given to anchor, in the same order');
+  if (!flags.pending) throw usageError('--pending is required');
+  const pending = readJson(flags.pending, 'pending stamp');
+  if (flags.tx !== undefined) {
+    if (!/^QTX1[0-9A-Z]{20,120}$/.test(flags.tx)) throw usageError('--tx is the QTX1 identifier of the stamp transaction');
+    if (pending && typeof pending === 'object' && typeof pending.tx === 'string' && pending.tx !== flags.tx) throw usageError('the pending stamp already names another transaction');
+    if (pending && typeof pending === 'object') pending.tx = flags.tx;
+  }
+  const envs = positional.map((f) => readJson(f, 'envelope', true));
+  const anchored = await qm.complete(envs, pending, { rpc: flags.rpc });
+  saveAnchored(positional, anchored);
+  fs.rmSync(flags.pending, { force: true });
+  for (const f of positional) fs.rmSync(pendingPath(f), { force: true });
   return 0;
 }
 
@@ -387,6 +437,10 @@ async function cmdVerify(positional, flags) {
   const env = readJson(positional[0], 'envelope', true);
   const opts = { requireAnchor: !flags['allow-unanchored'] };
   if (flags.at !== undefined) opts.at = flags.at;
+  if (flags['max-anchor-delay'] !== undefined) {
+    if (!/^[1-9][0-9]{0,9}$/.test(flags['max-anchor-delay'])) throw usageError('--max-anchor-delay is a whole number of seconds');
+    opts.maxAnchorDelay = Number(flags['max-anchor-delay']);
+  }
   if (flags.mandate !== undefined) opts.mandate = readJson(flags.mandate, 'mandate', true);
   if (flags['principal-key-id'] === undefined && flags['principal-public-key'] === undefined) throw usageError('give the expected principal with --principal-key-id or --principal-public-key');
   if (flags['no-revocations'] && flags.revocation) throw usageError('give --revocation or --no-revocations, not both');
@@ -412,6 +466,10 @@ async function cmdVerify(positional, flags) {
   } else {
     if (res.type) console.log('type  ' + res.type);
     for (const c of res.checks) console.log((c.ok ? 'ok    ' : c.transport ? 'retry ' : c.indeterminate ? 'open  ' : 'FAIL  ') + safe(c.name) + '  ' + safe(c.detail));
+    if ((res.endpoints || []).length) {
+      console.log('endpoints  ' + res.endpoints.map(safe).join(', '));
+      if (res.officialEndpoints === false) console.log('notice  anchor times were confirmed by an endpoint that is not the official one for this network, so they are only as reliable as that endpoint');
+    }
     console.log(res.status.toUpperCase());
   }
   return res.status === 'valid' ? 0 : res.status === 'indeterminate' ? 2 : 1;
@@ -425,7 +483,7 @@ async function main() {
   }
   if (!Object.hasOwn(SPEC, command)) throw usageError('unknown command ' + safe(command).slice(0, 40));
   const { positional, flags } = parse(command, rest);
-  const run = { keygen: cmdKeygen, key: cmdKey, grant: cmdGrant, check: cmdCheck, act: cmdAct, revoke: cmdRevoke, anchor: cmdAnchor, verify: cmdVerify }[command];
+  const run = { keygen: cmdKeygen, key: cmdKey, grant: cmdGrant, check: cmdCheck, act: cmdAct, revoke: cmdRevoke, anchor: cmdAnchor, complete: cmdComplete, verify: cmdVerify }[command];
   return run(positional, flags);
 }
 

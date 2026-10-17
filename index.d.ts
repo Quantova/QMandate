@@ -100,6 +100,7 @@ export interface VerifyOptions {
   details?: Uint8Array;
   detailsDigest?: string;
   requireAnchor?: boolean;
+  maxAnchorDelay?: number;
   at?: string;
   rpc?: string;
   client?: unknown;
@@ -122,6 +123,8 @@ export interface VerifyResult {
   type: EnvelopeType | null;
   checks: VerifyCheck[];
   [field: string]: unknown;
+  endpoints: string[];
+  officialEndpoints: boolean | null;
 }
 
 export function generateKey(): Uint8Array;
@@ -133,6 +136,7 @@ export function authorise(mandate: Envelope, request: ActionRequest, options?: A
 export function act(options: ActOptions): Envelope;
 export function revoke(options: RevokeOptions): Envelope;
 export function anchor(envelopes: Envelope | Envelope[], options: AnchorOptions): Promise<Envelope[]>;
+export function complete(envelopes: Envelope | Envelope[], pending: unknown, options?: { rpc?: string; client?: unknown; timeoutMs?: number }): Promise<Envelope[]>;
 export function verify(envelope: unknown, options: VerifyOptions): Promise<VerifyResult>;
 export function mandateRef(mandate: Envelope): string;
 export function anchorDigest(envelope: Envelope): string;
