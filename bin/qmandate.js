@@ -32,9 +32,10 @@ const HELP = `qmandate, post quantum mandates for AI agents with Quantova time p
                     [--allow-endpoint HOST]... [--allow-loopback]
   qmandate verify <envelope> --type mandate|action|revoke [--mandate FILE] [--principal-key-id HEX | --principal-public-key FILE]
                   [--revocation FILE... | --no-revocations] [--prior FILE... | --no-prior-actions] [--accept-legacy-actions]
-                  [--details-file FILE] [--counterparty-key-id HEX] [--allow-unanchored] [--at TIME]
+                  [--details-file FILE] [--counterparty-key-id HEX] [--executed-dir DIR] [--allow-unanchored] [--at TIME]
                   [--max-anchor-delay SECONDS] [--expect-sender ADDRESS]... [--rpc URL]... [--trust-custom-endpoints]
                   [--allow-endpoint HOST]... [--allow-loopback] [--trust-single-endpoint --no-strict] [--json]
+  qmandate consume <action> --ledger DIR
 
 Decisions about expiry use the time of the chain, read from at least two independent endpoints. Endpoints
 given with --rpc are used for the time and by verify only with --trust-custom-endpoints, loopback endpoints
@@ -48,12 +49,16 @@ act numbers every action of a scope and keeps the running total in the spend led
 spent before the ledger was first used for that mandate and action.
 Anchoring agent actions needs --mandate, and the chain refuses the anchor once its deadline, which is
 never later than the expiry of the mandate, has passed.
+verify alone never stops a signed action from being presented again. consume records the action in the
+folder given with --ledger and refuses an action already recorded there, so it is run in the step that
+releases a payment, and nothing is released unless it exits with 0. verify with --executed-dir reports an
+action already recorded in that folder as invalid.
 
 Amounts are whole numbers of minor units, for example 150000 for 1,500.00 USD. A scope without
 a currency is written ACTION,,0,0 and permits the action with no amount.
 
-Exit codes are 0 for valid or allowed, 1 for invalid, refused or an error, 2 for indeterminate or unproven
-and 64 for usage errors.`;
+Exit codes are 0 for valid, allowed or recorded, 1 for invalid, refused, already executed or an error, 2 for
+indeterminate or unproven and 64 for usage errors.`;
 
 function usageError(message) {
   const e = new Error(message);
@@ -70,7 +75,8 @@ const SPEC = {
   revoke: { flags: ['force'], values: ['key', 'mandate', 'note', 'out'] },
   anchor: { flags: ['trust-single-endpoint', 'trust-custom-endpoints', 'allow-loopback'], values: ['seed-file', 'index', 'max-fee', 'mandate'], multi: ['rpc', 'allow-endpoint'] },
   complete: { flags: ['trust-single-endpoint', 'allow-loopback'], values: ['pending', 'tx', 'mandate'], multi: ['rpc', 'allow-endpoint'] },
-  verify: { flags: ['allow-unanchored', 'no-revocations', 'no-prior-actions', 'accept-legacy-actions', 'json', 'trust-single-endpoint', 'trust-custom-endpoints', 'allow-loopback', 'no-strict'], values: ['type', 'mandate', 'principal-key-id', 'principal-public-key', 'counterparty-key-id', 'counterparty', 'details-file', 'at', 'max-anchor-delay'], multi: ['revocation', 'prior', 'rpc', 'allow-endpoint', 'expect-sender'] },
+  verify: { flags: ['allow-unanchored', 'no-revocations', 'no-prior-actions', 'accept-legacy-actions', 'json', 'trust-single-endpoint', 'trust-custom-endpoints', 'allow-loopback', 'no-strict'], values: ['type', 'mandate', 'principal-key-id', 'principal-public-key', 'counterparty-key-id', 'counterparty', 'details-file', 'executed-dir', 'at', 'max-anchor-delay'], multi: ['revocation', 'prior', 'rpc', 'allow-endpoint', 'expect-sender'] },
+  consume: { flags: [], values: ['ledger'] },
 };
 
 function parse(command, argv) {
@@ -538,6 +544,11 @@ async function cmdVerify(positional, flags) {
   if (flags['no-prior-actions']) opts.priorActions = [];
   if (flags['accept-legacy-actions']) opts.acceptLegacyActions = true;
   if (flags['details-file'] !== undefined) opts.details = readDetails(flags['details-file']);
+  if (flags['executed-dir'] !== undefined) {
+    if (opts.type !== 'action') throw usageError('--executed-dir applies only to --type action');
+    if (!isFolder(flags['executed-dir'])) throw usageError('the folder ' + safe(flags['executed-dir']) + ' given with --executed-dir does not exist');
+    opts.executed = qm.executedIn(flags['executed-dir'], env);
+  }
   Object.assign(opts, endpoints(flags));
   const res = await qm.verify(env, opts);
   if (flags.json) {
@@ -555,6 +566,39 @@ async function cmdVerify(positional, flags) {
   return res.status === 'valid' ? 0 : res.status === 'indeterminate' || res.status === 'unproven' ? 2 : 1;
 }
 
+function isFolder(dir) {
+  try {
+    return fs.statSync(dir).isDirectory();
+  } catch (e) {
+    return false;
+  }
+}
+
+async function cmdConsume(positional, flags) {
+  if (positional.length !== 1) throw usageError('consume takes one action envelope');
+  const ledger = need(flags, 'ledger');
+  const env = readJson(positional[0], 'action', true);
+  let done;
+  try {
+    done = await qm.consume(env, ledger);
+  } catch (e) {
+    if (e && e.code === 'QMANDATE_ALREADY_EXECUTED') {
+      console.error(safe(e.message) + ' (' + e.code + ')');
+      console.log('ALREADY EXECUTED');
+      return 1;
+    }
+    if (e && e.code === 'QMANDATE_INVALID_INPUT') {
+      const bad = new Error(e.message);
+      bad.invalid = true;
+      throw bad;
+    }
+    throw e;
+  }
+  console.log('action ' + done.actionRef + ' under mandate ' + done.mandateRef + ' recorded as executed in ' + safe(ledger));
+  console.log('RECORDED');
+  return 0;
+}
+
 async function main() {
   const [command, ...rest] = process.argv.slice(2);
   if (!command || command === 'help' || command === '--help' || command === '-h') {
@@ -563,7 +607,7 @@ async function main() {
   }
   if (!Object.hasOwn(SPEC, command)) throw usageError('unknown command ' + safe(command).slice(0, 40));
   const { positional, flags } = parse(command, rest);
-  const run = { keygen: cmdKeygen, key: cmdKey, grant: cmdGrant, check: cmdCheck, act: cmdAct, revoke: cmdRevoke, anchor: cmdAnchor, complete: cmdComplete, verify: cmdVerify }[command];
+  const run = { keygen: cmdKeygen, key: cmdKey, grant: cmdGrant, check: cmdCheck, act: cmdAct, revoke: cmdRevoke, anchor: cmdAnchor, complete: cmdComplete, verify: cmdVerify, consume: cmdConsume }[command];
   return run(positional, flags);
 }
 

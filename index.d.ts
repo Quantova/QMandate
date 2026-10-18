@@ -69,6 +69,7 @@ export interface LedgerStore {
   readJournal?(name: string): Promise<string | null>;
   recover?(name: string, agentKeyId?: string): Promise<string | null>;
   createOnce?(name: string, text: string): Promise<boolean>;
+  readExecuted?(name: string): Promise<string | null>;
 }
 
 export interface ConsumeResult {
@@ -195,6 +196,7 @@ export function grant(options: GrantOptions): Envelope;
 export function authorise(mandate: Envelope, request: ActionRequest, options?: AuthoriseOptions): Promise<AuthoriseResult>;
 export function act(options: ActOptions): Promise<Envelope>;
 export function consume(action: Envelope, ledger: string | LedgerStore): Promise<ConsumeResult>;
+export function executedIn(ledger: string | LedgerStore, action: Envelope): (actionRef: string) => Promise<boolean>;
 export function ledgerActions(ledger: string | LedgerStore, mandate: Envelope, action: string): Promise<LedgerActions>;
 export function revoke(options: RevokeOptions): Envelope;
 export function anchor(envelopes: Envelope | Envelope[], options: AnchorOptions): Promise<Envelope[]>;

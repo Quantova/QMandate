@@ -17,6 +17,7 @@ module.exports = {
   authorise: M.authorise,
   act: M.act,
   consume: M.consume,
+  executedIn: M.executedIn,
   ledgerActions: M.ledgerActions,
   revoke: M.revoke,
   anchor: M.anchor,
