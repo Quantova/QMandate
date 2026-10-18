@@ -70,7 +70,7 @@ const SPEC = {
   revoke: { flags: ['force'], values: ['key', 'mandate', 'note', 'out'] },
   anchor: { flags: ['trust-single-endpoint', 'trust-custom-endpoints', 'allow-loopback'], values: ['seed-file', 'index', 'max-fee', 'mandate'], multi: ['rpc', 'allow-endpoint'] },
   complete: { flags: ['trust-single-endpoint', 'allow-loopback'], values: ['pending', 'tx', 'mandate'], multi: ['rpc', 'allow-endpoint'] },
-  verify: { flags: ['allow-unanchored', 'no-revocations', 'no-prior-actions', 'accept-legacy-actions', 'json', 'trust-single-endpoint', 'trust-custom-endpoints', 'allow-loopback', 'no-strict'], values: ['type', 'mandate', 'principal-key-id', 'principal-public-key', 'counterparty-key-id', 'details-file', 'at', 'max-anchor-delay'], multi: ['revocation', 'prior', 'rpc', 'allow-endpoint', 'expect-sender'] },
+  verify: { flags: ['allow-unanchored', 'no-revocations', 'no-prior-actions', 'accept-legacy-actions', 'json', 'trust-single-endpoint', 'trust-custom-endpoints', 'allow-loopback', 'no-strict'], values: ['type', 'mandate', 'principal-key-id', 'principal-public-key', 'counterparty-key-id', 'counterparty', 'details-file', 'at', 'max-anchor-delay'], multi: ['revocation', 'prior', 'rpc', 'allow-endpoint', 'expect-sender'] },
 };
 
 function parse(command, argv) {
@@ -526,6 +526,7 @@ async function cmdVerify(positional, flags) {
     if (!/^[0-9a-f]{64}$/.test(flags['counterparty-key-id'])) throw usageError('--counterparty-key-id is 64 lowercase hex characters');
     opts.counterpartyKeyId = flags['counterparty-key-id'];
   }
+  if (flags.counterparty !== undefined) opts.counterparty = flags.counterparty;
   if (flags['principal-public-key'] !== undefined) {
     const desc = readJson(flags['principal-public-key'], 'principal key');
     if (!desc || desc.format !== 'qmandate-key/1' || typeof desc.publicKey !== 'string') throw usageError('the principal key file is not a qmandate-key/1 description');

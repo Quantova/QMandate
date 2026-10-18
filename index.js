@@ -16,6 +16,7 @@ module.exports = {
   grant: M.grant,
   authorise: M.authorise,
   act: M.act,
+  consume: M.consume,
   ledgerActions: M.ledgerActions,
   revoke: M.revoke,
   anchor: M.anchor,
@@ -26,6 +27,8 @@ module.exports = {
   anchorDigest: (envelope) => F.anchorDigest(F.parse(envelope)).toString('hex'),
   FORMAT: F.FORMAT,
   ACTION_FORMAT: F.ACTION_FORMAT,
+  CHAIN_FORMAT: F.CHAIN_FORMAT,
+  LEGACY_CUTOFF: F.LEGACY_CUTOFF,
   ALGORITHM: F.ALGORITHM,
   TYPES: F.TYPES,
 };

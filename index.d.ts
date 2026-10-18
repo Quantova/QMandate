@@ -11,7 +11,7 @@ export interface Scope {
 }
 
 export interface Envelope {
-  format: 'qmandate/1' | 'qmandate/2';
+  format: 'qmandate/1' | 'qmandate/2' | 'qmandate/3';
   type: EnvelopeType;
   algorithm: 'ML-DSA-65';
   signer: { id: string; publicKey: string };
@@ -68,6 +68,14 @@ export interface LedgerStore {
   compareAndSwap(name: string, expected: string | null, next: string, entry?: JournalEntry): Promise<boolean>;
   readJournal?(name: string): Promise<string | null>;
   recover?(name: string, agentKeyId?: string): Promise<string | null>;
+  createOnce?(name: string, text: string): Promise<boolean>;
+}
+
+export interface ConsumeResult {
+  actionRef: string;
+  mandateRef: string;
+  action: string;
+  name: string;
 }
 
 export interface LedgerActions {
@@ -137,9 +145,11 @@ export interface VerifyOptions {
   revocations?: Envelope[];
   priorActions?: Envelope[];
   acceptLegacyActions?: boolean;
+  executed?: Set<string> | ((actionRef: string) => boolean | Promise<boolean>);
   details?: Uint8Array;
   detailsDigest?: string;
   counterpartyKeyId?: string;
+  counterparty?: string;
   counterpartyPublicKey?: Uint8Array | string;
   strict?: boolean;
   requireAnchor?: boolean;
@@ -184,6 +194,7 @@ export function describeKey(key: Uint8Array): KeyDescription;
 export function grant(options: GrantOptions): Envelope;
 export function authorise(mandate: Envelope, request: ActionRequest, options?: AuthoriseOptions): Promise<AuthoriseResult>;
 export function act(options: ActOptions): Promise<Envelope>;
+export function consume(action: Envelope, ledger: string | LedgerStore): Promise<ConsumeResult>;
 export function ledgerActions(ledger: string | LedgerStore, mandate: Envelope, action: string): Promise<LedgerActions>;
 export function revoke(options: RevokeOptions): Envelope;
 export function anchor(envelopes: Envelope | Envelope[], options: AnchorOptions): Promise<Envelope[]>;
@@ -193,6 +204,8 @@ export function fileLedger(folder: string): LedgerStore;
 export function mandateRef(mandate: Envelope): string;
 export function anchorDigest(envelope: Envelope): string;
 export const FORMAT: 'qmandate/1';
-export const ACTION_FORMAT: 'qmandate/2';
+export const ACTION_FORMAT: 'qmandate/3';
+export const CHAIN_FORMAT: 'qmandate/2';
+export const LEGACY_CUTOFF: string;
 export const ALGORITHM: 'ML-DSA-65';
 export const TYPES: readonly EnvelopeType[];
