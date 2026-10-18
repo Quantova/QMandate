@@ -10,6 +10,7 @@ const F = require('../lib/format');
 const native = require('../lib/native');
 const Ledger = require('../lib/ledger');
 const { makeChain, client, SEED } = require('./chain');
+const { PAYEE, bound, grantIssuedEarly } = require('./bind');
 const { iterations, mulberry32 } = require('./fuzz');
 const { provenByPinnedOperators, iso, ROOT } = require('./honest');
 
@@ -83,7 +84,7 @@ test('over random sequences of concurrent acts the running total of each scope n
         const amount = String(r.int(4) === 0 ? 0 : r.int(Math.ceil(per * 1.3)) + 1);
         return { scope, amount };
       });
-      const results = await Promise.allSettled(batch.map((b) => qm.act(Object.assign({ key: holder, mandate, ledger: ledgerHandle(), action: b.scope.action, currency: b.scope.currency, amount: b.amount }, ep))));
+      const results = await Promise.allSettled(batch.map((b) => qm.act(Object.assign({ key: holder, mandate, ledger: ledgerHandle(), action: b.scope.action, currency: b.scope.currency, amount: b.amount, counterparty: PAYEE }, ep))));
       results.forEach((res, i) => {
         const { scope, amount } = batch[i];
         if (res.status === 'fulfilled') {
@@ -131,7 +132,7 @@ test('over random sequences of concurrent acts the running total of each scope n
       }
       if (list.length) {
         const last = list[list.length - 1];
-        const v = await qm.verify(last, Object.assign({ type: 'action', mandate, principalKeyId: qm.keyId(principal), revocations: [], priorActions: list.slice(0, -1), requireAnchor: false, at: iso(chain.time * 1000) }, ep));
+        const v = await qm.verify(last, Object.assign({ type: 'action', mandate, principalKeyId: qm.keyId(principal), revocations: [], priorActions: list.slice(0, -1), requireAnchor: false, at: iso(chain.time * 1000) }, bound(last), ep));
         assert.strictEqual(v.status, 'valid', JSON.stringify(v.checks.filter((c) => !c.ok)));
         assert.strictEqual(v.totalProven, true);
       }
@@ -221,7 +222,7 @@ function legacyAction(s, amount, actedAt, r) {
     action: 'payment.send',
     currency: 'USD',
     amount,
-    counterparty: '',
+    counterparty: PAYEE,
     detailsDigest: F.sha3(Buffer.alloc(0)).toString('hex'),
     actedAt,
     note: '',
@@ -236,11 +237,11 @@ test('an older format metered action never verifies valid unless the verifier se
   const { chain, ep } = endpoints();
   const s = { principal: qm.generateKey(), holder: qm.generateKey() };
   const maxTotal = 900;
-  s.mandate = qm.grant({ key: s.principal, agent: qm.describeKey(s.holder), scopes: [{ action: 'payment.send', currency: 'USD', maxPerAction: '500', maxTotal: String(maxTotal) }], validFrom: iso(Date.now() - 60000), validUntil: iso((chain.time + 86400) * 1000) });
+  s.mandate = grantIssuedEarly(s.principal, s.holder, [{ action: 'payment.send', currency: 'USD', maxPerAction: '500', maxTotal: String(maxTotal) }], iso(Date.now() - 60000), iso((chain.time + 86400) * 1000));
   const actedAt = iso(chain.time * 1000);
   const legacy = Array.from({ length: 8 }, () => legacyAction(s, String(r.int(501)), actedAt, r));
   const [anchored] = await qm.anchor(legacyAction(s, String(r.int(501)), actedAt, r), Object.assign({ seed: SEED, index: 0, mandate: s.mandate }, ep));
-  const current = await qm.act(Object.assign({ key: s.holder, mandate: s.mandate, ledger: folder(), action: 'payment.send', currency: 'USD', amount: '1' }, ep));
+  const current = await qm.act(Object.assign({ key: s.holder, mandate: s.mandate, ledger: folder(), action: 'payment.send', currency: 'USD', amount: '1', counterparty: PAYEE }, ep));
   const flags = [undefined, false, 0, 1, 'true', 'yes', {}, [], [true], null, { valueOf: () => true }];
   const n = iterations(300);
   const stats = { cases: n, refused: 0, accepted: 0, overTotal: 0 };
@@ -249,7 +250,7 @@ test('an older format metered action never verifies valid unless the verifier se
     const target = isAnchored ? anchored : r.pick(legacy);
     const pool = legacy.filter((e) => e !== target).concat(r.int(4) === 0 ? [current] : []);
     const priors = r.int(10) === 0 ? undefined : pool.filter(() => r.int(3) === 0);
-    const opts = Object.assign({ type: 'action', mandate: s.mandate, principalKeyId: qm.keyId(s.principal), revocations: [], requireAnchor: false, at: iso(chain.time * 1000 + 1000) }, ep);
+    const opts = Object.assign({ type: 'action', mandate: s.mandate, principalKeyId: qm.keyId(s.principal), revocations: [], requireAnchor: false, at: iso(chain.time * 1000 + 1000) }, bound(target), ep);
     if (priors !== undefined) opts.priorActions = priors;
     const strict = r.pick([undefined, true, false]);
     if (strict !== undefined) opts.strict = strict;
@@ -265,6 +266,10 @@ test('an older format metered action never verifies valid unless the verifier se
     }
     if (priors === undefined || isAnchored) {
       if (priors === undefined) assert.notStrictEqual(res.status, 'valid');
+      continue;
+    }
+    if (priors.includes(current)) {
+      assert.notStrictEqual(res.status, 'valid', 'an older format action verified valid beside an unordered action in the newer format');
       continue;
     }
     const total = priors.reduce((a, e) => a + Number(e.statement.amount), 0) + Number(target.statement.amount);

@@ -14,6 +14,7 @@ const M = require('../lib/mandate');
 const F = require('../lib/format');
 const native = require('../lib/native');
 const { makeChain, client, SEED, qstampRoot } = require('./chain');
+const { PAYEE, bound, grantIssuedEarly } = require('./bind');
 
 const ROOT = path.join(__dirname, '..');
 const qstamp = require(qstampRoot(ROOT));
@@ -42,7 +43,7 @@ function setup(lifetime) {
 
 async function anchoredPair(s) {
   const [m] = await qm.anchor(s.mandate, Object.assign({ seed: SEED, index: 0 }, s.ep));
-  const a = await qm.act(Object.assign({ key: s.agent, mandate: m, ledger: s.dir, action: 'payment.send', currency: 'USD', amount: '100' }, s.ep));
+  const a = await qm.act(Object.assign({ key: s.agent, mandate: m, ledger: s.dir, action: 'payment.send', currency: 'USD', amount: '100', counterparty: PAYEE }, s.ep));
   return { m, a };
 }
 
@@ -101,7 +102,7 @@ test('a receipt from endpoints that are not pinned operators never verifies vali
   const s = setup(3600);
   const { m, a } = await anchoredPair(s);
   const [anchored] = await qm.anchor(a, Object.assign({ seed: SEED, index: 0, mandate: m }, s.ep));
-  const base = { type: 'action', mandate: m, principalKeyId: qm.keyId(s.principal), revocations: [], priorActions: [] };
+  const base = Object.assign({ type: 'action', mandate: m, principalKeyId: qm.keyId(s.principal), revocations: [], priorActions: [] }, bound(a));
   const strict = await qm.verify(anchored, Object.assign({}, base, s.ep));
   assert.strictEqual(strict.status, 'unproven');
   assert.strictEqual(strict.valid, false);
@@ -144,7 +145,7 @@ test('an anchor proven by pinned operators verifies valid', async (t) => {
     if (had) qstamp.isProven = before;
     else delete qstamp.isProven;
   });
-  const r = await qm.verify(anchored, Object.assign({ type: 'action', mandate: m, principalKeyId: qm.keyId(s.principal), revocations: [], priorActions: [] }, s.ep));
+  const r = await qm.verify(anchored, Object.assign({ type: 'action', mandate: m, principalKeyId: qm.keyId(s.principal), revocations: [], priorActions: [] }, bound(a), s.ep));
   assert.strictEqual(r.status, 'valid', JSON.stringify(r.checks.filter((c) => !c.ok)));
   assert.notStrictEqual(r.anchoredAt, null);
 });
@@ -153,7 +154,7 @@ test('endpoints chosen by the caller need trustCustomEndpoints, loopback needs a
   const s = setup(3600);
   const { m, a } = await anchoredPair(s);
   const [anchored] = await qm.anchor(a, Object.assign({ seed: SEED, index: 0, mandate: m }, s.ep));
-  const base = { type: 'action', mandate: m, principalKeyId: qm.keyId(s.principal), revocations: [], priorActions: [] };
+  const base = Object.assign({ type: 'action', mandate: m, principalKeyId: qm.keyId(s.principal), revocations: [], priorActions: [] }, bound(a));
   const untrusted = await qm.verify(anchored, Object.assign({ clients: s.ep.clients, at: new Date().toISOString() }, base));
   assert.notStrictEqual(untrusted.status, 'valid');
   const loop = await qm.verify(anchored, Object.assign({ trustCustomEndpoints: true, rpc: 'http://127.0.0.1:9', at: new Date().toISOString() }, base));
@@ -179,7 +180,7 @@ function legacyAction(s, m) {
     action: 'payment.send',
     currency: 'USD',
     amount: '100',
-    counterparty: 'ACME',
+    counterparty: PAYEE,
     detailsDigest: F.sha3(Buffer.alloc(0)).toString('hex'),
     actedAt: new Date(s.chain.time * 1000).toISOString(),
     note: '',
@@ -197,9 +198,10 @@ async function stampWithoutDeadline(s, env) {
 
 test('an older format action anchored without a deadline, as earlier versions did, is accepted with acceptLegacyActions and otherwise indeterminate', async (t) => {
   const s = setup(3600);
+  s.mandate = grantIssuedEarly(s.principal, s.agent, s.mandate.statement.scopes, s.mandate.statement.validFrom, s.mandate.statement.validUntil);
   const [m] = await qm.anchor(s.mandate, Object.assign({ seed: SEED, index: 0 }, s.ep));
   const old = await stampWithoutDeadline(s, legacyAction(s, m));
-  const current = await stampWithoutDeadline(s, await qm.act(Object.assign({ key: s.agent, mandate: m, ledger: s.dir, action: 'payment.send', currency: 'USD', amount: '100' }, s.ep)));
+  const current = await stampWithoutDeadline(s, await qm.act(Object.assign({ key: s.agent, mandate: m, ledger: s.dir, action: 'payment.send', currency: 'USD', amount: '100', counterparty: PAYEE }, s.ep)));
   const had = Object.prototype.hasOwnProperty.call(qstamp, 'isProven');
   const before = qstamp.isProven;
   qstamp.isProven = () => true;
@@ -207,7 +209,7 @@ test('an older format action anchored without a deadline, as earlier versions di
     if (had) qstamp.isProven = before;
     else delete qstamp.isProven;
   });
-  const base = Object.assign({ type: 'action', mandate: m, principalKeyId: qm.keyId(s.principal), revocations: [], priorActions: [] }, s.ep);
+  const base = Object.assign({ type: 'action', mandate: m, principalKeyId: qm.keyId(s.principal), revocations: [], priorActions: [], maxAnchorDelay: 366 * 86400 }, bound(old), s.ep);
   const accepted = await qm.verify(old, Object.assign({ acceptLegacyActions: true }, base));
   assert.strictEqual(accepted.status, 'valid', JSON.stringify(accepted.checks.filter((c) => !c.ok)));
   assert.notStrictEqual(accepted.anchoredAt, null);

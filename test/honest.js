@@ -5,6 +5,7 @@ const os = require('os');
 const path = require('path');
 const qm = require('..');
 const { makeChain, client, SEED, qstampRoot } = require('./chain');
+const { PAYEE, PAYEE_KEY } = require('./bind');
 
 const ROOT = path.join(__dirname, '..');
 const qstamp = require(qstampRoot(ROOT));
@@ -32,7 +33,7 @@ async function honest() {
     key: principal,
     agent: qm.describeKey(holder),
     agentLabel: 'buyer',
-    counterparties: ['shop', 'depot'],
+    counterparties: [PAYEE, 'depot'],
     scopes: [
       { action: 'payment.send', currency: 'USD', maxPerAction: '500', maxTotal: '800' },
       { action: 'data.read', currency: '', maxPerAction: '0', maxTotal: '0' },
@@ -43,7 +44,7 @@ async function honest() {
   });
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'qmandate-honest-'));
   const [m] = await qm.anchor(mandate, Object.assign({ seed: SEED, index: 0 }, ep));
-  const pay = (amount) => qm.act(Object.assign({ key: holder, mandate: m, ledger: dir, action: 'payment.send', currency: 'USD', amount, counterparty: 'shop', details: Buffer.from('order ' + amount) }, ep));
+  const pay = (amount) => qm.act(Object.assign({ key: holder, mandate: m, ledger: dir, action: 'payment.send', currency: 'USD', amount, counterparty: PAYEE, details: Buffer.from('order ' + amount) }, ep));
   const a1 = await pay('100');
   const a2 = await pay('200');
   const [x1, x2] = await qm.anchor([a1, a2], Object.assign({ seed: SEED, index: 0, mandate: m }, ep));
@@ -53,7 +54,7 @@ async function honest() {
   const principalKeyId = qm.keyId(principal);
   const options = {
     mandate: Object.assign({ type: 'mandate', principalKeyId, revocations: [], at }, ep),
-    action: Object.assign({ type: 'action', mandate: m, principalKeyId, revocations: [], priorActions: [x1], at }, ep),
+    action: Object.assign({ type: 'action', mandate: m, principalKeyId, revocations: [], priorActions: [x1], at, details: Buffer.from('order 200'), counterpartyKeyId: PAYEE_KEY }, ep),
     revoke: Object.assign({ type: 'revoke', mandate: m, principalKeyId, at }, ep),
   };
   const records = { mandate: m, action: x2, revoke: rv };

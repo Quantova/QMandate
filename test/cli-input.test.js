@@ -7,6 +7,7 @@ const assert = require('node:assert');
 const { cliCampaign, runCli, tempDir, SAYS_VALID } = require('./fuzz');
 const { SEED } = require('./chain');
 const { honest } = require('./honest');
+const { PAYEE_KEY } = require('./bind');
 
 const BIN = path.join(__dirname, '..', 'bin', 'qmandate.js');
 const ENVELOPE_MAX = 1024 * 1024;
@@ -28,11 +29,14 @@ async function setup() {
     fs.writeFileSync(files[name], texts[name]);
   }
   const common = ['--principal-key-id', w.qm.keyId(w.principal), '--no-revocations', '--allow-unanchored', '--at', w.at];
+  files.details = path.join(dir, 'order.txt');
+  fs.writeFileSync(files.details, 'order 200');
+  const binding = ['--details-file', files.details, '--counterparty-key-id', PAYEE_KEY];
   const cmd = {
     mandate: (f) => ['verify', f, '--type', 'mandate'].concat(common),
-    action: (f) => ['verify', f, '--type', 'action', '--mandate', files.mandate, '--prior', files.prior].concat(common),
-    actionWithMandate: (f) => ['verify', files.action, '--type', 'action', '--mandate', f, '--prior', files.prior].concat(common),
-    actionWithPrior: (f) => ['verify', files.action, '--type', 'action', '--mandate', files.mandate, '--prior', f].concat(common),
+    action: (f) => ['verify', f, '--type', 'action', '--mandate', files.mandate, '--prior', files.prior].concat(common, binding),
+    actionWithMandate: (f) => ['verify', files.action, '--type', 'action', '--mandate', f, '--prior', files.prior].concat(common, binding),
+    actionWithPrior: (f) => ['verify', files.action, '--type', 'action', '--mandate', files.mandate, '--prior', f].concat(common, binding),
     revoke: (f) => ['verify', f, '--type', 'revoke', '--mandate', files.mandate].concat(common),
     revokeWithMandate: (f) => ['verify', files.revoke, '--type', 'revoke', '--mandate', f].concat(common),
     check: (f) => ['check', '--mandate', f, '--action', 'payment.send', '--currency', 'USD', '--amount', '1', '--counterparty', 'shop', '--spent', '0', '--trust-custom-endpoints'].concat(RPC),

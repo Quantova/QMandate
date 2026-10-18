@@ -15,6 +15,7 @@ const F = require('../lib/format');
 const Ledger = require('../lib/ledger');
 const native = require('../lib/native');
 const { makeChain, client } = require('./chain');
+const { PAYEE, bound } = require('./bind');
 
 const ROOT = path.join(__dirname, '..');
 const NET = require(require.resolve('@quantovainc/qstamp', { paths: [ROOT] })).NETWORKS.testnet;
@@ -46,7 +47,7 @@ function setup(maxTotal) {
 }
 
 function pay(s, amount, ledger) {
-  return qm.act(Object.assign({ key: s.agent, mandate: s.mandate, ledger: ledger || s.dir, action: 'payment.send', currency: 'USD', amount }, s.ep));
+  return qm.act(Object.assign({ key: s.agent, mandate: s.mandate, ledger: ledger || s.dir, action: 'payment.send', currency: 'USD', amount, counterparty: PAYEE }, s.ep));
 }
 
 const refOf = (e) => F.refOf(F.parse(e));
@@ -108,7 +109,7 @@ test('an action committed to the ledger but lost by its caller is recovered from
   assert.strictEqual(rec.sequence, '3');
   assert.strictEqual(rec.total, '60');
   assert.deepStrictEqual(rec.actions.map(refOf), [a1, a2, a3].map(refOf));
-  const r = await qm.verify(a3, Object.assign({ priorActions: rec.actions.slice(0, 2) }, opts));
+  const r = await qm.verify(a3, Object.assign({ priorActions: rec.actions.slice(0, 2) }, bound(a3), opts));
   assert.strictEqual(r.status, 'valid', JSON.stringify(r.checks.filter((c) => !c.ok)));
   assert.strictEqual(r.totalProven, true);
   for (const f of fs.readdirSync(s.dir).filter((n) => n.endsWith('.journal'))) assert.strictEqual(fs.statSync(path.join(s.dir, f)).mode & 0o777, 0o600);
@@ -376,6 +377,7 @@ function foreignAction(s, signer, prev, amount) {
     sequence: p ? String(Number(p.statement.sequence) + 1) : '1',
     previousRef: p ? F.refOf(p) : '',
     total: String((p ? Number(p.statement.total) : 0) + Number(amount)),
+    ledgerId: p && p.statement.ledgerId ? p.statement.ledgerId : crypto.randomBytes(16).toString('hex'),
     note: '',
   };
   const pk = qm.publicKey(signer);
@@ -387,7 +389,7 @@ test('the ledger records the agent of its mandate and refuses an unfinished acti
   const s = setup();
   const a1 = await pay(s, '10');
   const state = JSON.parse(fs.readFileSync(stateFile(s), 'utf8'));
-  assert.strictEqual(state.format, 'qmandate-ledger/2');
+  assert.strictEqual(state.format, 'qmandate-ledger/3');
   assert.strictEqual(state.agentKeyId, qm.keyId(s.agent));
   const pending = stateFile(s).replace(/\.json$/, '.pending');
   fs.writeFileSync(pending, JSON.stringify(foreignAction(s, qm.generateKey(), a1, '5')) + '\n', { mode: 0o600 });
@@ -425,7 +427,8 @@ test('a ledger written in the first format is read and upgraded, and a state nam
   const a2 = await pay(s, '10');
   assert.strictEqual(a2.statement.total, '20');
   const up = JSON.parse(fs.readFileSync(stateFile(s), 'utf8'));
-  assert.strictEqual(up.format, 'qmandate-ledger/2');
+  assert.strictEqual(up.format, 'qmandate-ledger/3');
+  assert.strictEqual(a2.statement.ledgerId, a1.statement.ledgerId);
   assert.strictEqual(up.agentKeyId, qm.keyId(s.agent));
   fs.writeFileSync(stateFile(s), Ledger.encodeState(Object.assign({}, up, { agentKeyId: qm.keyId(qm.generateKey()) })));
   await assert.rejects(pay(s, '10'), (e) => e.code === 'QMANDATE_LEDGER');

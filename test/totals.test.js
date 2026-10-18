@@ -12,6 +12,7 @@ const qm = require('..');
 const F = require('../lib/format');
 const native = require('../lib/native');
 const { makeChain, client } = require('./chain');
+const { PAYEE, bound, grantIssuedEarly } = require('./bind');
 
 const ROOT = path.join(__dirname, '..');
 const dirs = [];
@@ -42,11 +43,11 @@ function setup() {
 }
 
 function pay(s, amount, ledger, extra) {
-  return qm.act(Object.assign({ key: s.agent, mandate: s.mandate, ledger, action: 'payment.send', currency: 'USD', amount }, s.ep, extra || {}));
+  return qm.act(Object.assign({ key: s.agent, mandate: s.mandate, ledger, action: 'payment.send', currency: 'USD', amount, counterparty: PAYEE }, s.ep, extra || {}));
 }
 
 function check(s, action, priorActions, extra) {
-  return qm.verify(action, Object.assign({ type: 'action', mandate: s.mandate, principalKeyId: qm.keyId(s.principal), revocations: [], priorActions, requireAnchor: false }, s.ep, extra));
+  return qm.verify(action, Object.assign({ type: 'action', mandate: s.mandate, principalKeyId: qm.keyId(s.principal), revocations: [], priorActions, requireAnchor: false }, bound(action), s.ep, extra));
 }
 
 const failed = (r, name) => r.checks.find((c) => c.name === name && !c.ok);
@@ -144,6 +145,7 @@ test('a signed running total above the limit verifies invalid even without earli
 
 test('older format actions verify only when the verifier accepts them and say their total cannot be proven', async () => {
   const s = setup();
+  s.mandate = grantIssuedEarly(s.principal, s.agent, s.mandate.statement.scopes, s.mandate.statement.validFrom, s.mandate.statement.validUntil);
   const m = F.parse(s.mandate);
   const st = {
     mandateId: m.statement.mandateId,
@@ -153,7 +155,7 @@ test('older format actions verify only when the verifier accepts them and say th
     action: 'payment.send',
     currency: 'USD',
     amount: '300',
-    counterparty: '',
+    counterparty: PAYEE,
     detailsDigest: F.sha3(Buffer.alloc(0)).toString('hex'),
     actedAt: new Date(s.chain.time * 1000).toISOString(),
     note: '',
@@ -183,7 +185,7 @@ test('a counterparty can be bound to a key and the verifier says names are self 
   const s = setup();
   const payee = qm.generateKey();
   const a = await pay(s, '100', folder(), { counterparty: 'key ' + qm.keyId(payee) });
-  const r = await qm.verify(a, { type: 'action', mandate: s.mandate, principalKeyId: qm.keyId(s.principal), revocations: [], priorActions: [], requireAnchor: false, trustCustomEndpoints: true, clients: s.ep.clients, counterpartyKeyId: qm.keyId(payee) });
+  const r = await qm.verify(a, { type: 'action', mandate: s.mandate, principalKeyId: qm.keyId(s.principal), revocations: [], priorActions: [], requireAnchor: false, trustCustomEndpoints: true, clients: s.ep.clients, counterpartyKeyId: qm.keyId(payee), detailsDigest: a.statement.detailsDigest });
   assert.strictEqual(r.status, 'valid');
   assert.strictEqual(r.counterpartyBound, true);
   assert.ok(r.notes.some((n) => /not verified identities/.test(n)));
