@@ -13,6 +13,7 @@ const { spawn, spawnSync } = require('child_process');
 const qm = require('..');
 const F = require('../lib/format');
 const Ledger = require('../lib/ledger');
+const native = require('../lib/native');
 const { makeChain, client } = require('./chain');
 
 const ROOT = path.join(__dirname, '..');
@@ -235,7 +236,7 @@ test('a journal entry that does not match the ledger stops recovery', async () =
   await assert.rejects(qm.ledgerActions(s.dir, s.mandate, 'payment.send'), (e) => e.code === 'QMANDATE_LEDGER' && /journal/.test(e.message));
 });
 
-test('a store of your own receives each signed action in journal before the swap', async () => {
+test('a store of your own receives each signed action only with the swap that commits it', async () => {
   const s = setup();
   const state = new Map();
   const journal = new Map();
@@ -244,10 +245,11 @@ test('a store of your own receives each signed action in journal before the swap
     async read(name) {
       return state.get(name) || null;
     },
-    async compareAndSwap(name, expected, next) {
+    async compareAndSwap(name, expected, next, entry) {
       calls.push('swap');
       if ((state.get(name) || null) !== expected) return false;
       state.set(name, next);
+      journal.set(entry.name, entry.text);
       return true;
     },
     async journal(name, text) {
@@ -260,7 +262,7 @@ test('a store of your own receives each signed action in journal before the swap
   };
   const a1 = await pay(s, '10', store);
   const a2 = await pay(s, '20', store);
-  assert.deepStrictEqual(calls, ['journal', 'swap', 'journal', 'swap']);
+  assert.deepStrictEqual(calls, ['swap', 'swap']);
   const rec = await qm.ledgerActions(store, s.mandate, 'payment.send');
   assert.strictEqual(rec.complete, true);
   assert.deepStrictEqual(rec.actions.map(refOf), [a1, a2].map(refOf));
@@ -354,5 +356,197 @@ test('kill -9 of agent processes never loses or duplicates a signed action', asy
     if (i > 0) assert.strictEqual(e.statement.previousRef, refOf(rec.actions[i - 1]));
   });
   assert.strictEqual(rec.total, total.toString());
+  assert.deepStrictEqual(leftovers(s.dir), []);
+});
+
+function foreignAction(s, signer, prev, amount) {
+  const m = F.parse(s.mandate);
+  const p = prev ? F.parse(prev) : null;
+  const st = {
+    mandateId: m.statement.mandateId,
+    mandateRef: F.refOf(m),
+    actionId: crypto.randomBytes(16).toString('hex'),
+    agentKeyId: qm.keyId(signer),
+    action: 'payment.send',
+    currency: 'USD',
+    amount,
+    counterparty: 'Mallory',
+    detailsDigest: F.sha3(Buffer.alloc(0)).toString('hex'),
+    actedAt: new Date().toISOString(),
+    sequence: p ? String(Number(p.statement.sequence) + 1) : '1',
+    previousRef: p ? F.refOf(p) : '',
+    total: String((p ? Number(p.statement.total) : 0) + Number(amount)),
+    note: '',
+  };
+  const pk = qm.publicKey(signer);
+  const sig = native.sign(signer, F.payload('action', st, F.ACTION_VERSION), Uint8Array.from(crypto.randomBytes(32)));
+  return { format: F.ACTION_FORMAT, type: 'action', algorithm: F.ALGORITHM, signer: { id: qm.keyId(signer), publicKey: Buffer.from(pk).toString('base64') }, statement: st, signature: Buffer.from(sig).toString('base64') };
+}
+
+test('the ledger records the agent of its mandate and refuses an unfinished action signed by another key', async () => {
+  const s = setup();
+  const a1 = await pay(s, '10');
+  const state = JSON.parse(fs.readFileSync(stateFile(s), 'utf8'));
+  assert.strictEqual(state.format, 'qmandate-ledger/2');
+  assert.strictEqual(state.agentKeyId, qm.keyId(s.agent));
+  const pending = stateFile(s).replace(/\.json$/, '.pending');
+  fs.writeFileSync(pending, JSON.stringify(foreignAction(s, qm.generateKey(), a1, '5')) + '\n', { mode: 0o600 });
+  await assert.rejects(pay(s, '10'), (e) => e.code === 'QMANDATE_LEDGER' && /journal/.test(e.message));
+  await assert.rejects(qm.ledgerActions(s.dir, s.mandate, 'payment.send'), (e) => e.code === 'QMANDATE_LEDGER');
+  assert.strictEqual(fs.readFileSync(stateFile(s), 'utf8'), Ledger.encodeState(state));
+  fs.rmSync(pending);
+  const a2 = await pay(s, '10');
+  assert.strictEqual(a2.statement.sequence, '2');
+  assert.strictEqual(a2.statement.previousRef, refOf(a1));
+});
+
+test('an unfinished first action signed by another key is refused before any state exists', async () => {
+  const s = setup();
+  const name = Ledger.nameOf(qm.mandateRef(s.mandate), 'payment.send');
+  fs.writeFileSync(path.join(s.dir, name + '.pending'), JSON.stringify(foreignAction(s, qm.generateKey(), null, '5')) + '\n', { mode: 0o600 });
+  await assert.rejects(pay(s, '10'), (e) => e.code === 'QMANDATE_LEDGER');
+  await assert.rejects(qm.ledgerActions(s.dir, s.mandate, 'payment.send'), (e) => e.code === 'QMANDATE_LEDGER');
+  await assert.rejects(qm.fileLedger(s.dir).recover(name), (e) => e.code === 'QMANDATE_LEDGER');
+  assert.strictEqual(fs.existsSync(stateFile(s)), false);
+});
+
+test('a ledger written in the first format is read and upgraded, and a state naming another agent stops signing', async () => {
+  const s = setup();
+  const a1 = await pay(s, '10');
+  const v2 = JSON.parse(fs.readFileSync(stateFile(s), 'utf8'));
+  const v1 = Ledger.encodeState({ mandateRef: v2.mandateRef, action: v2.action, sequence: v2.sequence, total: v2.total, lastRef: v2.lastRef });
+  assert.match(v1, /qmandate-ledger\/1/);
+  fs.writeFileSync(stateFile(s), v1);
+  const pending = stateFile(s).replace(/\.json$/, '.pending');
+  fs.writeFileSync(pending, JSON.stringify(foreignAction(s, qm.generateKey(), a1, '5')) + '\n', { mode: 0o600 });
+  await assert.rejects(pay(s, '10'), (e) => e.code === 'QMANDATE_LEDGER');
+  assert.strictEqual(fs.readFileSync(stateFile(s), 'utf8'), v1);
+  fs.rmSync(pending);
+  const a2 = await pay(s, '10');
+  assert.strictEqual(a2.statement.total, '20');
+  const up = JSON.parse(fs.readFileSync(stateFile(s), 'utf8'));
+  assert.strictEqual(up.format, 'qmandate-ledger/2');
+  assert.strictEqual(up.agentKeyId, qm.keyId(s.agent));
+  fs.writeFileSync(stateFile(s), Ledger.encodeState(Object.assign({}, up, { agentKeyId: qm.keyId(qm.generateKey()) })));
+  await assert.rejects(pay(s, '10'), (e) => e.code === 'QMANDATE_LEDGER');
+});
+
+function keyOf(file) {
+  const st = fs.statSync(file);
+  const text = fs.readFileSync(file, 'utf8');
+  return crypto.createHash('sha256').update(st.dev + ' ' + st.ino + ' ' + st.mtimeMs + ' ' + text).digest('hex').slice(0, 32);
+}
+
+test('a claim to break a stale lock left by a dead process is itself broken once it is stale', async () => {
+  const dir = folder();
+  const lock = path.join(dir, 'x.json.lock');
+  const reset = () => {
+    for (const f of fs.readdirSync(dir)) fs.rmSync(path.join(dir, f), { force: true });
+    fs.writeFileSync(lock, lockFor(deadPid()), { mode: 0o600 });
+    backdate(lock, 60);
+    return lock + '.' + keyOf(lock) + '.break';
+  };
+  let claim = reset();
+  fs.writeFileSync(claim, lockFor(deadPid()), { mode: 0o600 });
+  backdate(claim, 60);
+  assert.strictEqual(Ledger.breakStale(lock), true);
+  assert.deepStrictEqual(fs.readdirSync(dir), []);
+
+  claim = reset();
+  fs.writeFileSync(claim, lockFor(deadPid()), { mode: 0o600 });
+  backdate(claim, 5);
+  assert.strictEqual(Ledger.breakStale(lock), false);
+  assert.ok(fs.existsSync(lock));
+
+  claim = reset();
+  const sleeper = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60000)'], { stdio: 'ignore' });
+  try {
+    fs.writeFileSync(claim, lockFor(sleeper.pid), { mode: 0o600 });
+    backdate(claim, 600);
+    assert.strictEqual(Ledger.breakStale(lock), false);
+    assert.ok(fs.existsSync(lock));
+  } finally {
+    sleeper.kill('SIGKILL');
+  }
+
+  claim = reset();
+  fs.writeFileSync(claim, '', { mode: 0o600 });
+  backdate(claim, 600);
+  assert.strictEqual(Ledger.breakStale(lock), false);
+  assert.ok(fs.existsSync(lock));
+
+  claim = reset();
+  fs.writeFileSync(claim, lockFor(deadPid(), 'another-host.example'), { mode: 0o600 });
+  backdate(claim, 600);
+  assert.strictEqual(Ledger.breakStale(lock), false);
+  assert.ok(fs.existsSync(lock));
+});
+
+test('act recovers by itself after a process died while breaking a stale lock', async () => {
+  const s = setup();
+  const lock = stateFile(s) + '.lock';
+  fs.writeFileSync(lock, lockFor(deadPid()), { mode: 0o600 });
+  backdate(lock, 60);
+  const claim = lock + '.' + keyOf(lock) + '.break';
+  fs.writeFileSync(claim, lockFor(deadPid()), { mode: 0o600 });
+  backdate(claim, 60);
+  const started = Date.now();
+  const a = await pay(s, '20');
+  assert.ok(Date.now() - started < 5000);
+  assert.strictEqual(a.statement.sequence, '1');
+  assert.deepStrictEqual(leftovers(s.dir), []);
+});
+
+test('a lock whose process number now belongs to another process is broken where the start time of a process is known', async (t) => {
+  const sleeper = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60000)'], { stdio: 'ignore' });
+  t.after(() => sleeper.kill('SIGKILL'));
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  const start = Ledger.startOf(sleeper.pid);
+  if (start === null) {
+    t.diagnostic('this platform does not report when a process started, a reused process number keeps its lock');
+    return;
+  }
+  assert.strictEqual(Ledger.startOf(sleeper.pid), start);
+  const dir = folder();
+  const lock = path.join(dir, 'x.json.lock');
+  const place = (holderStart, age) => {
+    const h = JSON.parse(lockFor(sleeper.pid));
+    if (holderStart !== undefined) h.start = holderStart;
+    fs.writeFileSync(lock, JSON.stringify(h) + '\n', { mode: 0o600 });
+    backdate(lock, age);
+  };
+  place(start, 600);
+  assert.strictEqual(Ledger.breakStale(lock), false);
+  place(undefined, 600);
+  assert.strictEqual(Ledger.breakStale(lock), false);
+  place(start.replace(/[0-9]$/, (d) => String((Number(d) + 1) % 10)), 5);
+  assert.strictEqual(Ledger.breakStale(lock), false);
+  place(start.replace(/[0-9]$/, (d) => String((Number(d) + 1) % 10)), 600);
+  assert.strictEqual(Ledger.breakStale(lock), true);
+  assert.strictEqual(fs.existsSync(lock), false);
+});
+
+test('a lock always records its holder, so a crash while locking never leaves a lock nobody can break', async () => {
+  const s = setup();
+  await pay(s, '1');
+  const lock = stateFile(s) + '.lock';
+  const real = fs.writeSync;
+  const seen = [];
+  fs.writeSync = function (fd, data, ...rest) {
+    for (const f of fs.readdirSync(s.dir)) if (f.endsWith('.lock')) seen.push(fs.readFileSync(path.join(s.dir, f), 'utf8'));
+    return real.call(fs, fd, data, ...rest);
+  };
+  try {
+    await pay(s, '1');
+  } finally {
+    fs.writeSync = real;
+  }
+  assert.ok(seen.length > 0);
+  for (const text of seen) assert.strictEqual(JSON.parse(text).pid, process.pid);
+  assert.strictEqual(fs.existsSync(lock), false);
+  fs.writeFileSync(path.join(s.dir, '.' + path.basename(lock) + '.' + crypto.randomBytes(16).toString('hex') + '.tmp'), '');
+  const script = "const fs = require('fs'); require(process.argv[1]).ledgerActions(process.argv[2], JSON.parse(fs.readFileSync(process.argv[3], 'utf8')), 'payment.send').then((r) => process.stdout.write(r.sequence));";
+  const res = await run(script, [ROOT, s.dir, writeMandate(s)]);
+  assert.strictEqual(res.out, '2', res.err);
   assert.deepStrictEqual(leftovers(s.dir), []);
 });

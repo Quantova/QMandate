@@ -8,9 +8,11 @@ const assert = require('node:assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const crypto = require('crypto');
 const qm = require('..');
 const M = require('../lib/mandate');
 const F = require('../lib/format');
+const native = require('../lib/native');
 const { makeChain, client, SEED, qstampRoot } = require('./chain');
 
 const ROOT = path.join(__dirname, '..');
@@ -165,4 +167,83 @@ test('endpoints chosen by the caller need trustCustomEndpoints, loopback needs a
   assert.strictEqual(wrong.status, 'invalid');
   const right = await qm.verify(anchored, Object.assign({ expectedSender: s.chain.core.address(SEED, 0) }, base, s.ep));
   assert.strictEqual(right.status, 'valid', JSON.stringify(right.checks.filter((c) => !c.ok)));
+});
+
+function legacyAction(s, m) {
+  const mp = F.parse(m);
+  const st = {
+    mandateId: mp.statement.mandateId,
+    mandateRef: F.refOf(mp),
+    actionId: crypto.randomBytes(16).toString('hex'),
+    agentKeyId: qm.keyId(s.agent),
+    action: 'payment.send',
+    currency: 'USD',
+    amount: '100',
+    counterparty: 'ACME',
+    detailsDigest: F.sha3(Buffer.alloc(0)).toString('hex'),
+    actedAt: new Date(s.chain.time * 1000).toISOString(),
+    note: '',
+  };
+  const pk = qm.publicKey(s.agent);
+  const sig = native.sign(s.agent, F.payload('action', st, F.VERSION), Uint8Array.from(crypto.randomBytes(32)));
+  return { format: F.FORMAT, type: 'action', algorithm: F.ALGORITHM, signer: { id: qm.keyId(s.agent), publicKey: Buffer.from(pk).toString('base64') }, statement: st, signature: Buffer.from(sig).toString('base64') };
+}
+
+async function stampWithoutDeadline(s, env) {
+  const [receipt] = await qstamp.stamp(Object.assign({ seed: SEED, index: 0, records: [{ alg: 'sha3-256', digest: F.anchorDigest(F.parse(env)) }], kind: 'ai_agent_action' }, s.ep));
+  assert.strictEqual(Object.prototype.hasOwnProperty.call(receipt, 'until'), false);
+  return Object.assign({}, env, { anchor: receipt });
+}
+
+test('an older format action anchored without a deadline, as earlier versions did, is accepted with acceptLegacyActions and otherwise indeterminate', async (t) => {
+  const s = setup(3600);
+  const [m] = await qm.anchor(s.mandate, Object.assign({ seed: SEED, index: 0 }, s.ep));
+  const old = await stampWithoutDeadline(s, legacyAction(s, m));
+  const current = await stampWithoutDeadline(s, await qm.act(Object.assign({ key: s.agent, mandate: m, ledger: s.dir, action: 'payment.send', currency: 'USD', amount: '100' }, s.ep)));
+  const had = Object.prototype.hasOwnProperty.call(qstamp, 'isProven');
+  const before = qstamp.isProven;
+  qstamp.isProven = () => true;
+  t.after(() => {
+    if (had) qstamp.isProven = before;
+    else delete qstamp.isProven;
+  });
+  const base = Object.assign({ type: 'action', mandate: m, principalKeyId: qm.keyId(s.principal), revocations: [], priorActions: [] }, s.ep);
+  const accepted = await qm.verify(old, Object.assign({ acceptLegacyActions: true }, base));
+  assert.strictEqual(accepted.status, 'valid', JSON.stringify(accepted.checks.filter((c) => !c.ok)));
+  assert.notStrictEqual(accepted.anchoredAt, null);
+  const open = await qm.verify(old, base);
+  assert.strictEqual(open.status, 'indeterminate', JSON.stringify(open.checks.filter((c) => !c.ok)));
+  assert.ok(open.checks.some((c) => c.name === 'anchor' && !c.ok && c.indeterminate));
+  for (const flags of [{}, { acceptLegacyActions: true }]) {
+    const r = await qm.verify(current, Object.assign({}, flags, base));
+    assert.strictEqual(r.status, 'invalid');
+    assert.match(r.checks.find((c) => c.name === 'anchor' && !c.ok).detail, /stamp entry/);
+  }
+});
+
+test('an older format action anchored without a deadline after its mandate expired stays invalid with acceptLegacyActions', async (t) => {
+  const s = setup(3600);
+  s.mandate = qm.grant({
+    key: s.principal,
+    agent: qm.describeKey(s.agent),
+    scopes: [{ action: 'payment.send', currency: 'USD', maxPerAction: '500', maxTotal: '800' }],
+    validFrom: new Date((s.chain.time - 7200) * 1000).toISOString(),
+    validUntil: new Date((s.chain.time - 3600) * 1000).toISOString(),
+  });
+  const [m] = await qm.anchor(s.mandate, Object.assign({ seed: SEED, index: 0 }, s.ep));
+  const env = legacyAction(s, m);
+  env.statement.actedAt = new Date((s.chain.time - 5400) * 1000).toISOString();
+  const resigned = native.sign(s.agent, F.payload('action', env.statement, F.VERSION), Uint8Array.from(crypto.randomBytes(32)));
+  env.signature = Buffer.from(resigned).toString('base64');
+  const late = await stampWithoutDeadline(s, env);
+  const had = Object.prototype.hasOwnProperty.call(qstamp, 'isProven');
+  const before = qstamp.isProven;
+  qstamp.isProven = () => true;
+  t.after(() => {
+    if (had) qstamp.isProven = before;
+    else delete qstamp.isProven;
+  });
+  const r = await qm.verify(late, Object.assign({ type: 'action', mandate: m, principalKeyId: qm.keyId(s.principal), revocations: [], priorActions: [], acceptLegacyActions: true }, s.ep));
+  assert.strictEqual(r.status, 'invalid');
+  assert.ok(r.checks.some((c) => c.name === 'validity' && !c.ok), JSON.stringify(r.checks.filter((c) => !c.ok)));
 });
