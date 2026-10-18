@@ -58,9 +58,26 @@ export interface EndpointOptions {
   strict?: boolean;
 }
 
+export interface JournalEntry {
+  name: string;
+  text: string;
+}
+
 export interface LedgerStore {
   read(name: string): Promise<string | null>;
-  compareAndSwap(name: string, expected: string | null, next: string): Promise<boolean>;
+  compareAndSwap(name: string, expected: string | null, next: string, entry?: JournalEntry): Promise<boolean>;
+  journal?(name: string, envelopeText: string): Promise<void>;
+  readJournal?(name: string): Promise<string | null>;
+  recover?(name: string): Promise<string | null>;
+}
+
+export interface LedgerActions {
+  mandateRef: string;
+  action: string;
+  sequence: string;
+  total: string;
+  actions: Envelope[];
+  complete: boolean;
 }
 
 export interface AuthoriseOptions extends EndpointOptions {
@@ -120,6 +137,7 @@ export interface VerifyOptions {
   principalPublicKey?: Uint8Array | string;
   revocations?: Envelope[];
   priorActions?: Envelope[];
+  acceptLegacyActions?: boolean;
   details?: Uint8Array;
   detailsDigest?: string;
   counterpartyKeyId?: string;
@@ -167,6 +185,7 @@ export function describeKey(key: Uint8Array): KeyDescription;
 export function grant(options: GrantOptions): Envelope;
 export function authorise(mandate: Envelope, request: ActionRequest, options?: AuthoriseOptions): Promise<AuthoriseResult>;
 export function act(options: ActOptions): Promise<Envelope>;
+export function ledgerActions(ledger: string | LedgerStore, mandate: Envelope, action: string): Promise<LedgerActions>;
 export function revoke(options: RevokeOptions): Envelope;
 export function anchor(envelopes: Envelope | Envelope[], options: AnchorOptions): Promise<Envelope[]>;
 export function complete(envelopes: Envelope | Envelope[], pending: unknown, options?: EndpointOptions & { mandate?: Envelope; timeoutMs?: number }): Promise<Envelope[]>;

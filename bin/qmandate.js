@@ -31,7 +31,7 @@ const HELP = `qmandate, post quantum mandates for AI agents with Quantova time p
   qmandate complete <envelope>... --pending FILE [--mandate FILE] [--tx ID] [--rpc URL]... [--trust-single-endpoint]
                     [--allow-endpoint HOST]... [--allow-loopback]
   qmandate verify <envelope> --type mandate|action|revoke [--mandate FILE] [--principal-key-id HEX | --principal-public-key FILE]
-                  [--revocation FILE... | --no-revocations] [--prior FILE... | --no-prior-actions]
+                  [--revocation FILE... | --no-revocations] [--prior FILE... | --no-prior-actions] [--accept-legacy-actions]
                   [--details-file FILE] [--counterparty-key-id HEX] [--allow-unanchored] [--at TIME]
                   [--max-anchor-delay SECONDS] [--expect-sender ADDRESS]... [--rpc URL]... [--trust-custom-endpoints]
                   [--allow-endpoint HOST]... [--allow-loopback] [--trust-single-endpoint --no-strict] [--json]
@@ -70,7 +70,7 @@ const SPEC = {
   revoke: { flags: ['force'], values: ['key', 'mandate', 'note', 'out'] },
   anchor: { flags: ['trust-single-endpoint', 'trust-custom-endpoints', 'allow-loopback'], values: ['seed-file', 'index', 'max-fee', 'mandate'], multi: ['rpc', 'allow-endpoint'] },
   complete: { flags: ['trust-single-endpoint', 'allow-loopback'], values: ['pending', 'tx', 'mandate'], multi: ['rpc', 'allow-endpoint'] },
-  verify: { flags: ['allow-unanchored', 'no-revocations', 'no-prior-actions', 'json', 'trust-single-endpoint', 'trust-custom-endpoints', 'allow-loopback', 'no-strict'], values: ['type', 'mandate', 'principal-key-id', 'principal-public-key', 'counterparty-key-id', 'details-file', 'at', 'max-anchor-delay'], multi: ['revocation', 'prior', 'rpc', 'allow-endpoint', 'expect-sender'] },
+  verify: { flags: ['allow-unanchored', 'no-revocations', 'no-prior-actions', 'accept-legacy-actions', 'json', 'trust-single-endpoint', 'trust-custom-endpoints', 'allow-loopback', 'no-strict'], values: ['type', 'mandate', 'principal-key-id', 'principal-public-key', 'counterparty-key-id', 'details-file', 'at', 'max-anchor-delay'], multi: ['revocation', 'prior', 'rpc', 'allow-endpoint', 'expect-sender'] },
 };
 
 function parse(command, argv) {
@@ -228,6 +228,35 @@ function atomicWrite(dest, data, force) {
   }
 }
 
+function strictJson(text) {
+  const value = JSON.parse(text);
+  const stack = [];
+  for (let i = 0; i < text.length; i += 1) {
+    const ch = text[i];
+    const top = stack[stack.length - 1];
+    if (ch === '"') {
+      let j = i + 1;
+      while (text[j] !== '"') j += text[j] === '\\' ? 2 : 1;
+      if (top && top.keys && top.expectKey) {
+        const key = JSON.parse(text.slice(i, j + 1));
+        if (top.keys.has(key)) throw new Error('the JSON repeats the key ' + JSON.stringify(key));
+        top.keys.add(key);
+        top.expectKey = false;
+      }
+      i = j;
+    } else if (ch === '{') {
+      stack.push({ keys: new Set(), expectKey: true });
+    } else if (ch === '[') {
+      stack.push({ keys: null });
+    } else if (ch === '}' || ch === ']') {
+      stack.pop();
+    } else if (ch === ',' && top && top.keys) {
+      top.expectKey = true;
+    }
+  }
+  return value;
+}
+
 function readJson(file, what, invalidExit) {
   const fd = openRegular(file, what);
   const buf = Buffer.alloc(ENVELOPE_MAX + 1);
@@ -245,7 +274,7 @@ function readJson(file, what, invalidExit) {
   };
   if (n > ENVELOPE_MAX) throw bad('the ' + what + ' is larger than ' + ENVELOPE_MAX + ' bytes');
   try {
-    return JSON.parse(buf.subarray(0, n).toString('utf8'));
+    return strictJson(buf.subarray(0, n).toString('utf8'));
   } catch (e) {
     throw bad('the ' + what + ' ' + safe(file) + ' is not valid JSON');
   }
@@ -506,6 +535,7 @@ async function cmdVerify(positional, flags) {
   if (flags['no-revocations']) opts.revocations = [];
   if (flags.prior) opts.priorActions = flags.prior.map((f) => readJson(f, 'prior action'));
   if (flags['no-prior-actions']) opts.priorActions = [];
+  if (flags['accept-legacy-actions']) opts.acceptLegacyActions = true;
   if (flags['details-file'] !== undefined) opts.details = readDetails(flags['details-file']);
   Object.assign(opts, endpoints(flags));
   const res = await qm.verify(env, opts);
