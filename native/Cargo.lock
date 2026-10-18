@@ -40,7 +40,7 @@ dependencies = [
 [[package]]
 name = "qtv-crypto"
 version = "0.3.0"
-source = "git+https://github.com/Quantova/Q-Crypto.git?rev=03d1702150ed41f8db78d69affe0ce6565b1724c#03d1702150ed41f8db78d69affe0ce6565b1724c"
+source = "git+https://github.com/Quantova/Q-Crypto.git?rev=f47a831b5fd43829f93916fe8d280e9d0a8a715f#f47a831b5fd43829f93916fe8d280e9d0a8a715f"
 
 [[package]]
 name = "quote"

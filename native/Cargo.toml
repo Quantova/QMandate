@@ -11,7 +11,7 @@ repository = "https://github.com/Quantova/QMandate"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-qtv-crypto = { git = "https://github.com/Quantova/Q-Crypto.git", rev = "03d1702150ed41f8db78d69affe0ce6565b1724c", default-features = false }
+qtv-crypto = { git = "https://github.com/Quantova/Q-Crypto.git", rev = "f47a831b5fd43829f93916fe8d280e9d0a8a715f", default-features = false }
 wasm-bindgen = "=0.2.126"
 
 [profile.release]
