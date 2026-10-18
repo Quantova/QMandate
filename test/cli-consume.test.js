@@ -34,7 +34,7 @@ async function setup() {
     '--principal-key-id', w.qm.keyId(w.principal), '--no-revocations', '--allow-unanchored', '--at', w.at,
     '--details-file', files.details, '--counterparty-key-id', PAYEE_KEY].concat(executed === undefined ? [] : ['--executed-dir', executed]);
   const ref = F.refOf(F.parse(w.plain.action));
-  const record = (folder) => path.join(folder, Ledger.executedName(w.qm.mandateRef(w.plain.mandate), 'payment.send', ref));
+  const record = (folder) => path.join(folder, Ledger.executedName(w.qm.mandateRef(w.plain.mandate), 'payment.send', F.parse(w.plain.action).statement));
   world = { w, dir, files, texts, verify, ref, record };
   return world;
 }

@@ -122,6 +122,8 @@ QMandate requires Node 20 or later.
 qmandate keygen treasury.key
 qmandate keygen agent.key
 qmandate key agent.key > agent.pub.json
+qmandate key treasury.key > treasury.pub.json
+mkdir -m 700 ledger executed
 
 qmandate grant --key treasury.key --agent agent.pub.json --agent-label "Supplier payments agent" --scope payment.send,USD,500000,2000000 --counterparty "key $ACME_KEY_ID" --valid-until 2027-01-01T00:00:00.000Z --out mandate.json
 
@@ -139,7 +141,7 @@ qmandate consume action.json --ledger executed && send-payment action.json
 qmandate revoke --key treasury.key --mandate mandate.json --note "Agent retired" --out revoke.json
 ```
 
-The check command gives the advice of authorise and never gates an action, which runs only after the act command has written its signed action. The payment provider keeps its own folder of executed actions, here named executed. It runs verify with --executed-dir on that folder and then consume with the same folder before any payment is made, and it pays only when consume exits with status 0. verify by itself returns the same answer every time the same action is presented, and only consume records the action and refuses it the next time, with the code QMANDATE_ALREADY_EXECUTED. Verification requires the expected principal and either the revocations and earlier actions or the flags that state there are none. Unanchored envelopes are accepted only with the allow unanchored flag. The command exits with status 0 when the result is valid, the action is allowed or consume has recorded the action, 1 when it is invalid, refused, already executed or cannot be read, 2 when it cannot be decided or rests on an unproven anchor, and 64 for usage errors. Key files must be readable only by their owner and are never followed through symbolic links.
+The check command gives the advice of authorise and never gates an action, which runs only after the act command has written its signed action. The payment provider keeps its own folder of executed actions, here named executed. It runs verify with --executed-dir on that folder and then consume with the same folder before any payment is made, and it pays only when consume exits with status 0. verify by itself returns the same answer every time the same action is presented, and only consume records the action and refuses it the next time, with the code QMANDATE_ALREADY_EXECUTED. consume records the position the action holds under its mandate, so a second action at the same position is refused as well, even one the agent signed again with the same content. Verification requires the expected principal and either the revocations and earlier actions or the flags that state there are none. Unanchored envelopes are accepted only with the allow unanchored flag. The command exits with status 0 when the result is valid, the action is allowed or consume has recorded the action, 1 when it is invalid, refused, already executed or cannot be read, 2 when it cannot be decided or rests on an unproven anchor, and 64 for usage errors. Key files must be readable only by their owner and are never followed through symbolic links.
 
 ## Programmatic use
 

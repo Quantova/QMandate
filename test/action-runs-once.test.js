@@ -11,6 +11,7 @@ const path = require('path');
 const qm = require('..');
 const F = require('../lib/format');
 const Ledger = require('../lib/ledger');
+const native = require('../lib/native');
 const { makeChain, client, SEED, qstampRoot } = require('./chain');
 const { PAYEE, PAYEE_KEY, bound } = require('./bind');
 
@@ -85,7 +86,7 @@ test('consume records an action once in the ledger folder and refuses a second c
   const ref = F.refOf(F.parse(w.action));
   const done = await qm.consume(w.action, w.dir);
   assert.strictEqual(done.actionRef, ref);
-  const name = Ledger.executedName(qm.mandateRef(w.mandate), 'payment.send', ref);
+  const name = Ledger.executedName(qm.mandateRef(w.mandate), 'payment.send', F.parse(w.action).statement);
   assert.ok(fs.existsSync(path.join(w.dir, name)));
   assert.strictEqual(fs.statSync(path.join(w.dir, name)).mode & 0o777, 0o600);
   await assert.rejects(qm.consume(w.action, w.dir), (e) => e.code === 'QMANDATE_ALREADY_EXECUTED');
@@ -97,7 +98,7 @@ test('consume records an action once in the ledger folder and refuses a second c
   const shared = folder();
   const race = await Promise.allSettled(Array.from({ length: 8 }, () => qm.consume(w.action, shared)));
   assert.strictEqual(race.filter((r) => r.status === 'fulfilled').length, 1);
-  const executed = (r) => fs.existsSync(path.join(w.dir, Ledger.executedName(qm.mandateRef(w.mandate), 'payment.send', r)));
+  const executed = () => fs.existsSync(path.join(w.dir, Ledger.executedName(qm.mandateRef(w.mandate), 'payment.send', F.parse(w.action).statement)));
   const check = await qm.verify(w.action, Object.assign({ details: w.details, counterpartyKeyId: PAYEE_KEY, executed }, w.opts));
   assert.strictEqual(check.status, 'invalid');
 });
@@ -140,4 +141,28 @@ test('in strict mode a metered action is indeterminate unless the verifier binds
   assert.strictEqual(otherPayee.status, 'invalid');
   const otherDetails = await qm.verify(w.action, Object.assign({ details: Buffer.from('pay invoice 1001 to account 87654321'), counterpartyKeyId: PAYEE_KEY }, w.opts));
   assert.strictEqual(otherDetails.status, 'invalid');
+});
+
+test('an action signed again by the agent is refused by consume and by the executed check', async (t) => {
+  const w = await world(t);
+  const p = F.parse(w.action);
+  const rnd = new Uint8Array(32).fill(9);
+  const again = JSON.parse(JSON.stringify(w.action));
+  again.signature = Buffer.from(native.sign(w.agent, F.encoded(p), rnd)).toString('base64');
+  delete again.anchor;
+  assert.notStrictEqual(F.refOf(F.parse(again)), F.refOf(p));
+  await qm.consume(w.action, w.dir);
+  await assert.rejects(qm.consume(again, w.dir), (e) => e.code === 'QMANDATE_ALREADY_EXECUTED');
+  const first = folder();
+  await qm.consume(again, first);
+  await assert.rejects(qm.consume(w.action, first), (e) => e.code === 'QMANDATE_ALREADY_EXECUTED');
+  const once = await qm.verify(again, Object.assign({ details: w.details, counterpartyKeyId: PAYEE_KEY, executed: qm.executedIn(w.dir, again) }, w.opts));
+  assert.notStrictEqual(once.status, 'valid');
+});
+
+test('a ledger folder given as a symbolic link is refused', async () => {
+  const real = folder();
+  const link = path.join(folder(), 'linked');
+  fs.symlinkSync(real, link);
+  await assert.rejects(qm.fileLedger(link).readExecuted('0'.repeat(64) + '.payment.send.executed.seq.1'), (e) => e.code === 'QMANDATE_LEDGER');
 });
