@@ -34,5 +34,6 @@ jobs:
             ;;
         esac
         npm test
+        npm ci --ignore-scripts
     secrets:
       NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
