@@ -45,8 +45,8 @@ function pay(s, amount, ledger, extra) {
   return qm.act(Object.assign({ key: s.agent, mandate: s.mandate, ledger, action: 'payment.send', currency: 'USD', amount }, s.ep, extra || {}));
 }
 
-function check(s, action, priorActions) {
-  return qm.verify(action, Object.assign({ type: 'action', mandate: s.mandate, principalKeyId: qm.keyId(s.principal), revocations: [], priorActions, requireAnchor: false }, s.ep));
+function check(s, action, priorActions, extra) {
+  return qm.verify(action, Object.assign({ type: 'action', mandate: s.mandate, principalKeyId: qm.keyId(s.principal), revocations: [], priorActions, requireAnchor: false }, s.ep, extra));
 }
 
 const failed = (r, name) => r.checks.find((c) => c.name === name && !c.ok);
@@ -142,7 +142,7 @@ test('a signed running total above the limit verifies invalid even without earli
   assert.match(failed(r2, 'total').detail, /exceeds 800/);
 });
 
-test('older format actions still verify and say their total cannot be proven', async () => {
+test('older format actions verify only when the verifier accepts them and say their total cannot be proven', async () => {
   const s = setup();
   const m = F.parse(s.mandate);
   const st = {
@@ -161,7 +161,10 @@ test('older format actions still verify and say their total cannot be proven', a
   const sig = native.sign(s.agent, F.payload('action', st), crypto.getRandomValues(new Uint8Array(32)));
   const pk = qm.publicKey(s.agent);
   const old = { format: F.FORMAT, type: 'action', algorithm: F.ALGORITHM, signer: { id: qm.keyId(s.agent), publicKey: Buffer.from(pk).toString('base64') }, statement: st, signature: Buffer.from(sig).toString('base64') };
-  const r = await check(s, old, []);
+  const refused = await check(s, old, []);
+  assert.strictEqual(refused.status, 'indeterminate');
+  assert.ok(failed(refused, 'total'));
+  const r = await check(s, old, [], { acceptLegacyActions: true });
   assert.strictEqual(r.status, 'valid');
   assert.strictEqual(r.format, F.FORMAT);
   assert.strictEqual(r.totalProven, false);
