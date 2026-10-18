@@ -66,9 +66,8 @@ export interface JournalEntry {
 export interface LedgerStore {
   read(name: string): Promise<string | null>;
   compareAndSwap(name: string, expected: string | null, next: string, entry?: JournalEntry): Promise<boolean>;
-  journal?(name: string, envelopeText: string): Promise<void>;
   readJournal?(name: string): Promise<string | null>;
-  recover?(name: string): Promise<string | null>;
+  recover?(name: string, agentKeyId?: string): Promise<string | null>;
 }
 
 export interface LedgerActions {
