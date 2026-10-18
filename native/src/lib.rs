@@ -100,7 +100,7 @@ pub fn verify(public_key: &[u8], message: &[u8], signature: &[u8]) -> bool {
     let Ok(signature) = <&ml_dsa::Signature>::try_from(signature) else {
         return false;
     };
-    ml_dsa::verify(public, message, signature, CONTEXT)
+    ml_dsa::verify_strict(public, message, signature, CONTEXT)
 }
 
 #[wasm_bindgen(js_name = publicKeyBytes)]
