@@ -9,8 +9,6 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const qm = require('..');
-const F = require('../lib/format');
-const Ledger = require('../lib/ledger');
 const { makeChain, client, SEED, qstampRoot } = require('./chain');
 
 const ROOT = path.join(__dirname, '..');

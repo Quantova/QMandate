@@ -226,7 +226,7 @@ function atomicWrite(dest, data, force) {
         fs.closeSync(dfd);
       }
     } catch (e) {
-      if (e.code !== 'EISDIR' && e.code !== 'EPERM' && e.code !== 'EINVAL') throw e;
+      void e;
     }
   } finally {
     fs.rmSync(tmp, { force: true });
