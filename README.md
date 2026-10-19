@@ -108,6 +108,16 @@ This release anchors on the live Quantova network Q-test-net-01. The signing mod
 
 A mandate proves the authority given by a principal key. Matching that key to an accountable person or function is a matter for the organisation, for example through a published key description and its internal approval records. A running total is proven complete only when every earlier action of the scope is supplied to the verifier. The ledger stops an honest agent from overspending under concurrency, and the signed number, total and ledger identifier make any overspending by an agent that signs outside its ledger visible as a fork or as a second ledger, but only to a verifier that is given actions from both. A payment provider that sees one action alone should ask for the earlier actions of its scope and add its own executed actions under the mandate. A verifier should use the earliest anchored copy of a mandate, because anyone can anchor a further copy later. Text fields accept only visible characters in Unicode normal form C, and amounts are whole numbers of minor units of at most thirty digits. A mandate may last at most ten years.
 
+## Threat model
+
+QMandate protects the mandates, actions and revocations, the principal keys and the keys that mandates name, the spend ledger with its journal, the executed folder of a payment provider, and the receipts of anchors.
+
+It trusts the principal key that the verifier names, the key that the mandate names, the network values pinned in the Qstamp release it depends on, and the storage that holds the keys and the ledger. It does not trust the gateway or any endpoint, the platform that executes actions, or any party that holds or presents an envelope.
+
+A forged or altered envelope fails its signature over the canonical statement, and an action relies on one exact signed mandate through its reference. Signatures use the context string quantova/qmandate/1, so a signature made for another SDK or for a network transaction never verifies here, and every anchor is checked against the genesis and contract pinned in the Qstamp release. A hostile gateway cannot make an unproven anchor count, and expiry is judged by the time of the finalised chain, never the local clock alone. A claimed time more than 24 hours before its anchor is not proven, and the chain refuses to anchor an action after its mandate expires. act signs within the total limit through a locked ledger, and consume records each action and its position once, so a provider that uses it never pays one action or one position twice. The ledger folder is refused when it is a symbolic link, when every user can write it or when a folder above it can be changed by another user, and a state older than its journal is refused. A principal stops an exposed mandated key by anchoring a revocation of the mandate, after which new actions under it are invalid. Malformed input is refused by strict field checks and fixed size limits.
+
+Left to the integrator are the protection of keys, supplying every revocation and earlier action it holds, and keeping the ledger and executed folders private and backed up as a whole, because a ledger rolled back with its journal can sign a position again. QMandate has no statement that revokes a principal key, so an exposed principal key must be replaced and no longer named by verifiers.
+
 ## Installation
 
 ```

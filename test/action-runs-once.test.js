@@ -8,6 +8,7 @@ const assert = require('node:assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { spawnSync } = require('child_process');
 const qm = require('..');
 const F = require('../lib/format');
 const Ledger = require('../lib/ledger');
@@ -165,4 +166,85 @@ test('a ledger folder given as a symbolic link is refused', async () => {
   const link = path.join(folder(), 'linked');
   fs.symlinkSync(real, link);
   await assert.rejects(qm.fileLedger(link).readExecuted('0'.repeat(64) + '.payment.send.executed.seq.1'), (e) => e.code === 'QMANDATE_LEDGER');
+});
+
+test('a ledger folder any user can write is refused', async () => {
+  const open = folder();
+  fs.chmodSync(open, 0o777);
+  await assert.rejects(qm.fileLedger(open).readExecuted('0'.repeat(64) + '.payment.send.executed.seq.1'), (e) => e.code === 'QMANDATE_LEDGER' && /every user of this machine/.test(e.message));
+});
+
+test('a ledger under a folder any user can change, or with an access control list, is refused', async () => {
+  const open = folder();
+  fs.chmodSync(open, 0o777);
+  const inside = path.join(open, 'ledger');
+  fs.mkdirSync(inside, { mode: 0o700 });
+  const name = '0'.repeat(64) + '.payment.send.executed.seq.1';
+  await assert.rejects(qm.fileLedger(inside).readExecuted(name), (e) => e.code === 'QMANDATE_LEDGER' && /above the ledger can be changed by another user/.test(e.message));
+  const listed = folder();
+  const acl = process.platform === 'darwin'
+    ? spawnSync('chmod', ['+a', 'everyone allow add_file,delete_child', listed])
+    : spawnSync('setfacl', ['-m', 'u:nobody:rwx', listed]);
+  if (acl.status === 0) await assert.rejects(qm.fileLedger(listed).readExecuted(name), (e) => e.code === 'QMANDATE_LEDGER' && /access control list/.test(e.message));
+});
+
+test('a ledger reached through a symbolic link or a parent that another user can change is refused', async () => {
+  const CODE = 'QMANDATE_LEDGER';
+  const OPEN = (d) => qm.fileLedger(d).readExecuted('0'.repeat(64) + '.payment.send.executed.seq.1');
+
+  const parentAcl = folder();
+  const underAcl = path.join(parentAcl, 'ledger');
+  fs.mkdirSync(underAcl, { mode: 0o700 });
+  const set = process.platform === 'darwin' ? spawnSync('chmod', ['+a', 'everyone allow add_file,delete_child,add_subdirectory', parentAcl]) : spawnSync('setfacl', ['-m', 'u:nobody:rwx', parentAcl]);
+  if (set.status === 0) await assert.rejects(OPEN(underAcl), (e) => e.code === CODE && /can be changed by another user/.test(e.message));
+  const safeTarget = folder();
+  const openHolder = folder();
+  fs.chmodSync(openHolder, 0o777);
+  const linkInOpen = path.join(openHolder, 'ledger');
+  fs.symlinkSync(safeTarget, linkInOpen);
+  await assert.rejects(OPEN(linkInOpen), (e) => e.code === CODE && /can be changed by another user|is a symbolic link/.test(e.message));
+  const openTop = folder();
+  fs.chmodSync(openTop, 0o777);
+  const realUp = folder();
+  fs.mkdirSync(path.join(realUp, 'ledger'), { mode: 0o700 });
+  fs.symlinkSync(realUp, path.join(openTop, 'up'));
+  await assert.rejects(OPEN(path.join(openTop, 'up', 'ledger')), (e) => e.code === CODE && /can be changed by another user/.test(e.message));
+  const chainOwn = folder();
+  const chainOpen = folder();
+  fs.chmodSync(chainOpen, 0o777);
+  const chainTarget = folder();
+  fs.mkdirSync(path.join(chainTarget, 'ledger'), { mode: 0o700 });
+  fs.symlinkSync(chainTarget, path.join(chainOpen, 'L2'));
+  fs.symlinkSync(path.join(chainOpen, 'L2'), path.join(chainOwn, 'L1'));
+  await assert.rejects(OPEN(path.join(chainOwn, 'L1', 'ledger')), (e) => e.code === CODE && /can be changed by another user/.test(e.message));
+  const homeLike = folder();
+  if (process.platform === 'darwin') spawnSync('chmod', ['+a', 'everyone deny delete', homeLike]);
+  const denied = path.join(homeLike, 'ledger');
+  fs.mkdirSync(denied, { mode: 0o700 });
+  await OPEN(denied);
+  if (process.platform === 'darwin') spawnSync('chmod', ['-a', 'everyone deny delete', homeLike]);
+});
+
+test('setting the wall clock back does not stretch the wait for a held ledger lock', async () => {
+  const dir = folder();
+  fs.chmodSync(dir, 0o700);
+  const name = '0'.repeat(64) + '.payment.send';
+  fs.writeFileSync(path.join(dir, name + '.json.lock'), JSON.stringify({ pid: process.pid, started: 1, host: os.hostname(), nonce: 'ab'.repeat(16) }) + '\n', { mode: 0o600 });
+  const real = Date.now;
+  let calls = 0;
+  let timer;
+  const cap = new Promise((resolve) => { timer = setTimeout(() => resolve('still waiting'), Ledger.LOCK_WAIT_MS + 15000); });
+  Date.now = () => {
+    calls += 1;
+    return calls > 1 ? real() - 3600000 : real();
+  };
+  let out;
+  try {
+    out = await Promise.race([qm.fileLedger(dir).recover(name).then(() => 'recovered', (e) => e), cap]);
+  } finally {
+    Date.now = real;
+    clearTimeout(timer);
+  }
+  assert.notStrictEqual(out, 'still waiting');
+  assert.ok(out instanceof Error && out.code === 'QMANDATE_LEDGER' && /stayed locked/.test(out.message), String(out && out.message));
 });

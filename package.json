@@ -34,7 +34,7 @@
     "node": ">=20"
   },
   "dependencies": {
-    "@quantovainc/qstamp": "0.2.1"
+    "@quantovainc/qstamp": "0.3.0"
   },
   "keywords": [
     "post-quantum",
