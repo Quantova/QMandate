@@ -32,7 +32,7 @@ jobs:
           *)
             src="$RUNNER_TEMP/qstamp"
             git init -q "$src"
-            git -C "$src" fetch -q --depth 1 https://github.com/Quantova/QStamp.git f62e458f5890cf3cde024744bc89eb33bb4f2bf1
+            git -C "$src" fetch -q --depth 1 https://github.com/Quantova/QStamp.git 812789065a87a25a8ead7690734c8ed926e7b546
             git -C "$src" checkout -q FETCH_HEAD
             (cd "$src" && npm pack --ignore-scripts --pack-destination "$RUNNER_TEMP")
             npm install --no-save --ignore-scripts "$RUNNER_TEMP"/quantovainc-qstamp-*.tgz
