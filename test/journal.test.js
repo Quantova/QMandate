@@ -18,7 +18,7 @@ const { makeChain, client } = require('./chain');
 const { PAYEE, bound } = require('./bind');
 
 const ROOT = path.join(__dirname, '..');
-const NET = require(require.resolve('@quantovainc/qstamp', { paths: [ROOT] })).NETWORKS.testnet;
+const NET = require('@quantovainc/qstamp').NETWORKS.testnet;
 const dirs = [];
 
 test.after(() => {

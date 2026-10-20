@@ -117,7 +117,7 @@ qm.act({ key: seed(process.argv[3]), mandate, ledger: process.argv[4], action: '
 
 test('concurrent agent processes sharing a ledger folder never exceed the total limit', async () => {
   const s = setup();
-  const net = require(require.resolve('@quantovainc/qstamp', { paths: [ROOT] })).NETWORKS.testnet;
+  const net = require('@quantovainc/qstamp').NETWORKS.testnet;
   const mfile = path.join(s.dir, 'mandate.txt');
   fs.writeFileSync(mfile, JSON.stringify(s.mandate));
   const agentHex = Buffer.from(s.agent).toString('hex');

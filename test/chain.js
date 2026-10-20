@@ -1,6 +1,7 @@
 'use strict';
 
 const path = require('path');
+const { createRequire } = require('module');
 const crypto = require('crypto');
 
 const CHARSET = 'qpzry9x8gf2tvdw0s3jn54khce6mua7l';
@@ -55,8 +56,8 @@ let latest = 0;
 
 function makeChain(sdkDir, opts) {
   const base = qstampRoot(sdkDir);
-  const qstamp = require(base);
-  const wire = require(path.join(base, 'lib', 'wire'));
+  const qstamp = createRequire(path.join(base, 'package.json'))('./');
+  const wire = createRequire(path.join(base, 'package.json'))('./lib/wire');
   const net = qstamp.NETWORKS.testnet;
   const o = opts || {};
   const chain = {
@@ -69,7 +70,7 @@ function makeChain(sdkDir, opts) {
     events: new Map(),
     blocks: new Map(),
     nextBlockTime: null,
-    core: require(require.resolve('@quantovainc/qcore', { paths: [base] })).core,
+    core: createRequire(path.join(base, 'package.json'))('@quantovainc/qcore').core,
   };
   chain.height = Math.max(chain.height, (chain.time - net.genesisTime) * 5);
   function newBlock(t) {

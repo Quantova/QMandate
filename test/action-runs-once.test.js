@@ -13,11 +13,11 @@ const qm = require('..');
 const F = require('../lib/format');
 const Ledger = require('../lib/ledger');
 const native = require('../lib/native');
-const { makeChain, client, SEED, qstampRoot } = require('./chain');
+const { makeChain, client, SEED } = require('./chain');
 const { PAYEE, PAYEE_KEY, bound } = require('./bind');
 
 const ROOT = path.join(__dirname, '..');
-const qstamp = require(qstampRoot(ROOT));
+const qstamp = require('@quantovainc/qstamp');
 const dirs = [];
 
 test.after(() => {
@@ -147,7 +147,7 @@ test('in strict mode a metered action is indeterminate unless the verifier binds
 test('an action signed again by the agent is refused by consume and by the executed check', async (t) => {
   const w = await world(t);
   const p = F.parse(w.action);
-  const rnd = new Uint8Array(32).fill(9);
+  const rnd = Uint8Array.from({ length: 32 }, (_, i) => (9 + i) & 255);
   const again = JSON.parse(JSON.stringify(w.action));
   again.signature = Buffer.from(native.sign(w.agent, F.encoded(p), rnd)).toString('base64');
   delete again.anchor;

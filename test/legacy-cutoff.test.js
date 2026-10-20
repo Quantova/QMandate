@@ -12,11 +12,11 @@ const crypto = require('crypto');
 const qm = require('..');
 const F = require('../lib/format');
 const native = require('../lib/native');
-const { makeChain, client, SEED, qstampRoot } = require('./chain');
+const { makeChain, client, SEED } = require('./chain');
 const { PAYEE, bound, grantIssuedEarly } = require('./bind');
 
 const ROOT = path.join(__dirname, '..');
-const qstamp = require(qstampRoot(ROOT));
+const qstamp = require('@quantovainc/qstamp');
 const dirs = [];
 
 test.after(() => {

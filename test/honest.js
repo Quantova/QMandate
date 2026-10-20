@@ -4,11 +4,11 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const qm = require('..');
-const { makeChain, client, SEED, qstampRoot } = require('./chain');
+const { makeChain, client, SEED } = require('./chain');
 const { PAYEE, PAYEE_KEY } = require('./bind');
 
 const ROOT = path.join(__dirname, '..');
-const qstamp = require(qstampRoot(ROOT));
+const qstamp = require('@quantovainc/qstamp');
 
 function provenByPinnedOperators() {
   const had = Object.prototype.hasOwnProperty.call(qstamp, 'isProven');
