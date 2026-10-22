@@ -71,7 +71,7 @@ function olderAction(s, m, amount) {
 const opts = (s, m, env, priorActions) => Object.assign({ type: 'action', mandate: m, principalKeyId: qm.keyId(s.principal), revocations: [], priorActions, acceptLegacyActions: true, maxAnchorDelay: 366 * 86400 }, bound(env), s.ep);
 
 test('the cutoff is the release time of the chained action format', () => {
-  assert.strictEqual(F.LEGACY_CUTOFF, '2026-10-17T19:01:44.000Z');
+  assert.strictEqual(F.LEGACY_CUTOFF, '2026-10-19T05:09:09.000Z');
   assert.strictEqual(qm.LEGACY_CUTOFF, F.LEGACY_CUTOFF);
 });
 
@@ -82,7 +82,7 @@ test('an action in the format qmandate/1 under a mandate issued after the cutoff
   const [old] = await qm.anchor(olderAction(s, m, '400'), Object.assign({ seed: SEED, index: 0, mandate: m }, s.ep));
   const r = await qm.verify(old, opts(s, m, old, []));
   assert.strictEqual(r.status, 'invalid');
-  assert.match(r.checks.find((c) => c.name === 'older format' && !c.ok).detail, /issued before 2026-10-17T19:01:44.000Z/);
+  assert.match(r.checks.find((c) => c.name === 'older format' && !c.ok).detail, /issued before 2026-10-19T05:09:09.000Z/);
 });
 
 test('under a mandate issued before the cutoff an older action is accepted until the first chained action and refused after it', async (t) => {
