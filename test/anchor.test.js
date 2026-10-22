@@ -26,7 +26,7 @@ test.after(() => {
 
 function setup(lifetime) {
   const chain = makeChain(ROOT);
-  const ep = { trustCustomEndpoints: true, clients: [client(chain, 'a'), client(chain, 'b')] };
+  const ep = { network: 'testnet', trustCustomEndpoints: true, clients: [client(chain, 'a'), client(chain, 'b')] };
   const principal = qm.generateKey();
   const agent = qm.generateKey();
   const mandate = qm.grant({
@@ -111,10 +111,10 @@ test('a receipt from endpoints that are not pinned operators never verifies vali
   const lenient = await qm.verify(anchored, Object.assign({ strict: false }, base, s.ep));
   assert.strictEqual(lenient.status, 'unproven');
   assert.notStrictEqual(lenient.anchoredAt, null);
-  await assert.rejects(qm.verify(anchored, Object.assign({}, base, { trustCustomEndpoints: true, clients: [s.ep.clients[0]], trustSingleEndpoint: true })), /strict/);
-  const single = await qm.verify(anchored, Object.assign({ strict: false }, base, { trustCustomEndpoints: true, clients: [s.ep.clients[0]], trustSingleEndpoint: true }));
+  await assert.rejects(qm.verify(anchored, Object.assign({}, base, { network: 'testnet', trustCustomEndpoints: true, clients: [s.ep.clients[0]], trustSingleEndpoint: true })), /strict/);
+  const single = await qm.verify(anchored, Object.assign({ strict: false }, base, { network: 'testnet', trustCustomEndpoints: true, clients: [s.ep.clients[0]], trustSingleEndpoint: true }));
   assert.notStrictEqual(single.status, 'valid');
-  const mandate = await qm.verify(m, { type: 'mandate', principalKeyId: qm.keyId(s.principal), revocations: [], trustCustomEndpoints: true, clients: s.ep.clients });
+  const mandate = await qm.verify(m, { type: 'mandate', principalKeyId: qm.keyId(s.principal), revocations: [], network: 'testnet', trustCustomEndpoints: true, clients: s.ep.clients });
   assert.strictEqual(mandate.status, 'unproven');
 });
 
@@ -123,7 +123,7 @@ test('a fabricated receipt for an action that was never anchored cannot verify v
   const { m, a } = await anchoredPair(s);
   const fake = makeChain(ROOT);
   fake.time = s.chain.time;
-  const forged = { trustCustomEndpoints: true, clients: [client(fake, 'c'), client(fake, 'd')] };
+  const forged = { network: 'testnet', trustCustomEndpoints: true, clients: [client(fake, 'c'), client(fake, 'd')] };
   const [onFake] = await qm.anchor(a, Object.assign({ seed: SEED, index: 0, mandate: m }, forged));
   const base = { type: 'action', mandate: m, principalKeyId: qm.keyId(s.principal), revocations: [], priorActions: [] };
   for (const strict of [true, false]) {
@@ -154,9 +154,10 @@ test('endpoints chosen by the caller need trustCustomEndpoints, loopback needs a
   const s = setup(3600);
   const { m, a } = await anchoredPair(s);
   const [anchored] = await qm.anchor(a, Object.assign({ seed: SEED, index: 0, mandate: m }, s.ep));
-  const base = Object.assign({ type: 'action', mandate: m, principalKeyId: qm.keyId(s.principal), revocations: [], priorActions: [] }, bound(a));
+  const base = Object.assign({ type: 'action', network: 'testnet', mandate: m, principalKeyId: qm.keyId(s.principal), revocations: [], priorActions: [] }, bound(a));
   const untrusted = await qm.verify(anchored, Object.assign({ clients: s.ep.clients, at: new Date().toISOString() }, base));
   assert.notStrictEqual(untrusted.status, 'valid');
+  await assert.rejects(qm.verify(anchored, Object.assign({ clients: s.ep.clients, at: new Date().toISOString() }, base, { network: 'custom' })), /trustCustomEndpoints/);
   const loop = await qm.verify(anchored, Object.assign({ trustCustomEndpoints: true, rpc: 'http://127.0.0.1:9', at: new Date().toISOString() }, base));
   assert.notStrictEqual(loop.status, 'valid');
   const before = qstamp.isProven;
@@ -168,6 +169,8 @@ test('endpoints chosen by the caller need trustCustomEndpoints, loopback needs a
   assert.strictEqual(wrong.status, 'invalid');
   const right = await qm.verify(anchored, Object.assign({ expectedSender: s.chain.core.address(SEED, 0) }, base, s.ep));
   assert.strictEqual(right.status, 'valid', JSON.stringify(right.checks.filter((c) => !c.ok)));
+  const custom = await qm.verify(anchored, Object.assign({ expectedSender: s.chain.core.address(SEED, 0) }, base, s.ep, { network: 'custom' }));
+  assert.strictEqual(custom.status, 'valid', JSON.stringify(custom.checks.filter((c) => !c.ok)));
 });
 
 function legacyAction(s, m) {

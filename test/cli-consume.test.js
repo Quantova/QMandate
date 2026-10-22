@@ -31,7 +31,7 @@ async function setup() {
   files.details = path.join(dir, 'order.txt');
   fs.writeFileSync(files.details, 'order 200');
   const verify = (executed) => ['verify', files.action, '--type', 'action', '--mandate', files.mandate, '--prior', files.prior,
-    '--principal-key-id', w.qm.keyId(w.principal), '--no-revocations', '--allow-unanchored', '--at', w.at,
+    '--network', 'testnet', '--principal-key-id', w.qm.keyId(w.principal), '--no-revocations', '--allow-unanchored', '--at', w.at,
     '--details-file', files.details, '--counterparty-key-id', PAYEE_KEY].concat(executed === undefined ? [] : ['--executed-dir', executed]);
   const ref = F.refOf(F.parse(w.plain.action));
   const record = (folder) => path.join(folder, Ledger.executedName(w.qm.mandateRef(w.plain.mandate), 'payment.send', F.parse(w.plain.action).statement));
@@ -120,7 +120,7 @@ test('consume and --executed-dir refuse bad arguments with usage errors and reco
     ['consume', files.action, '--ledger', executed, '--json'],
     verify(path.join(world.dir, 'no-such-folder')),
     verify(files.action),
-    ['verify', files.mandate, '--type', 'mandate', '--principal-key-id', world.w.qm.keyId(world.w.principal), '--no-revocations', '--allow-unanchored', '--at', world.w.at, '--executed-dir', executed],
+    ['verify', files.mandate, '--type', 'mandate', '--network', 'testnet', '--principal-key-id', world.w.qm.keyId(world.w.principal), '--no-revocations', '--allow-unanchored', '--at', world.w.at, '--executed-dir', executed],
   ];
   for (const args of usage) {
     const r = await runCli(BIN, args);

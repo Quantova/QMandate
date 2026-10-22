@@ -33,7 +33,7 @@ function folder() {
 
 function setup(maxTotal) {
   const chain = makeChain(ROOT);
-  const ep = { trustCustomEndpoints: true, clients: [client(chain, 'a'), client(chain, 'b')] };
+  const ep = { network: 'testnet', trustCustomEndpoints: true, clients: [client(chain, 'a'), client(chain, 'b')] };
   const principal = qm.generateKey();
   const agent = qm.generateKey();
   const mandate = qm.grant({
@@ -75,7 +75,7 @@ const fake = (name) => ({
   async block(h) { return { block: 'x', height: h, time: now() }; },
   async transaction() { return null; },
 });
-const endpoints = { trustCustomEndpoints: true, clients: [fake('a'), fake('b')] };
+const endpoints = { network: 'testnet', trustCustomEndpoints: true, clients: [fake('a'), fake('b')] };
 `;
 
 function writeMandate(s) {

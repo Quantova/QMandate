@@ -15,7 +15,7 @@ const ROOT = path.join(__dirname, '..');
 
 function setup(from, until) {
   const chain = makeChain(ROOT);
-  const ep = { trustCustomEndpoints: true, clients: [client(chain, 'a'), client(chain, 'b')] };
+  const ep = { network: 'testnet', trustCustomEndpoints: true, clients: [client(chain, 'a'), client(chain, 'b')] };
   const principal = qm.generateKey();
   const agent = qm.generateKey();
   const mandate = qm.grant({
@@ -81,7 +81,7 @@ test('authorise returns a promise of the decision', async () => {
 
 test('strict mode refuses the time of a single endpoint', async () => {
   const s = setup();
-  const one = { trustCustomEndpoints: true, clients: [s.ep.clients[0]], trustSingleEndpoint: true };
+  const one = { network: 'testnet', trustCustomEndpoints: true, clients: [s.ep.clients[0]], trustSingleEndpoint: true };
   await assert.rejects(qm.authorise(s.mandate, request, Object.assign({ spent: '0' }, one)), /strict/);
   await assert.rejects(qm.act(Object.assign({ key: s.agent, mandate: s.mandate, ledger: os.tmpdir(), action: 'payment.send', currency: 'USD', amount: '1' }, one)), /strict/);
   const lenient = await qm.authorise(s.mandate, request, Object.assign({ spent: '0', strict: false }, one));

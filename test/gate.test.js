@@ -27,7 +27,7 @@ function folder() {
 
 function setup(maxPerAction, maxTotal) {
   const chain = makeChain(ROOT);
-  const ep = { trustCustomEndpoints: true, clients: [client(chain, 'a'), client(chain, 'b')] };
+  const ep = { network: 'testnet', trustCustomEndpoints: true, clients: [client(chain, 'a'), client(chain, 'b')] };
   const principal = qm.generateKey();
   const agent = qm.generateKey();
   const mandate = qm.grant({

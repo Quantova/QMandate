@@ -29,7 +29,7 @@ function folder() {
 
 function setup() {
   const chain = makeChain(ROOT);
-  const ep = { trustCustomEndpoints: true, clients: [client(chain, 'a'), client(chain, 'b')] };
+  const ep = { network: 'testnet', trustCustomEndpoints: true, clients: [client(chain, 'a'), client(chain, 'b')] };
   const principal = qm.generateKey();
   const agent = qm.generateKey();
   const mandate = qm.grant({
@@ -93,7 +93,7 @@ test('a missing earlier action leaves the total unproven', async () => {
   assert.strictEqual(r.totalProven, false);
   const none = await check(s, a2, []);
   assert.strictEqual(none.status, 'indeterminate');
-  const r2 = await qm.verify(a2, { type: 'action', mandate: s.mandate, principalKeyId: qm.keyId(s.principal), revocations: [], requireAnchor: false, trustCustomEndpoints: true, clients: s.ep.clients });
+  const r2 = await qm.verify(a2, { type: 'action', mandate: s.mandate, principalKeyId: qm.keyId(s.principal), revocations: [], requireAnchor: false, network: 'testnet', trustCustomEndpoints: true, clients: s.ep.clients });
   assert.strictEqual(r2.status, 'indeterminate');
 });
 
@@ -133,12 +133,12 @@ test('a running total that does not add up verifies invalid', async () => {
 test('a signed running total above the limit verifies invalid even without earlier actions', async () => {
   const s = setup();
   const a = await pay(s, '300', folder(), { spent: '450' });
-  const r = await qm.verify(a, { type: 'action', mandate: s.mandate, principalKeyId: qm.keyId(s.principal), revocations: [], requireAnchor: false, trustCustomEndpoints: true, clients: s.ep.clients });
+  const r = await qm.verify(a, { type: 'action', mandate: s.mandate, principalKeyId: qm.keyId(s.principal), revocations: [], requireAnchor: false, network: 'testnet', trustCustomEndpoints: true, clients: s.ep.clients });
   assert.strictEqual(r.status, 'indeterminate');
   const st = Object.assign({}, a.statement, { total: '900' });
   const sig = native.sign(s.agent, F.payload('action', st, F.ACTION_VERSION), crypto.getRandomValues(new Uint8Array(32)));
   const over = Object.assign({}, a, { statement: st, signature: Buffer.from(sig).toString('base64') });
-  const r2 = await qm.verify(over, { type: 'action', mandate: s.mandate, principalKeyId: qm.keyId(s.principal), revocations: [], requireAnchor: false, trustCustomEndpoints: true, clients: s.ep.clients });
+  const r2 = await qm.verify(over, { type: 'action', mandate: s.mandate, principalKeyId: qm.keyId(s.principal), revocations: [], requireAnchor: false, network: 'testnet', trustCustomEndpoints: true, clients: s.ep.clients });
   assert.strictEqual(r2.status, 'invalid');
   assert.match(failed(r2, 'total').detail, /exceeds 800/);
 });
@@ -185,10 +185,10 @@ test('a counterparty can be bound to a key and the verifier says names are self 
   const s = setup();
   const payee = qm.generateKey();
   const a = await pay(s, '100', folder(), { counterparty: 'key ' + qm.keyId(payee) });
-  const r = await qm.verify(a, { type: 'action', mandate: s.mandate, principalKeyId: qm.keyId(s.principal), revocations: [], priorActions: [], requireAnchor: false, trustCustomEndpoints: true, clients: s.ep.clients, counterpartyKeyId: qm.keyId(payee), detailsDigest: a.statement.detailsDigest });
+  const r = await qm.verify(a, { type: 'action', mandate: s.mandate, principalKeyId: qm.keyId(s.principal), revocations: [], priorActions: [], requireAnchor: false, network: 'testnet', trustCustomEndpoints: true, clients: s.ep.clients, counterpartyKeyId: qm.keyId(payee), detailsDigest: a.statement.detailsDigest });
   assert.strictEqual(r.status, 'valid');
   assert.strictEqual(r.counterpartyBound, true);
   assert.ok(r.notes.some((n) => /not verified identities/.test(n)));
-  const other = await qm.verify(a, { type: 'action', mandate: s.mandate, principalKeyId: qm.keyId(s.principal), revocations: [], priorActions: [], requireAnchor: false, trustCustomEndpoints: true, clients: s.ep.clients, counterpartyKeyId: qm.keyId(qm.generateKey()) });
+  const other = await qm.verify(a, { type: 'action', mandate: s.mandate, principalKeyId: qm.keyId(s.principal), revocations: [], priorActions: [], requireAnchor: false, network: 'testnet', trustCustomEndpoints: true, clients: s.ep.clients, counterpartyKeyId: qm.keyId(qm.generateKey()) });
   assert.strictEqual(other.status, 'invalid');
 });

@@ -36,7 +36,7 @@ function random(seed) {
 
 function endpoints() {
   const chain = makeChain(ROOT);
-  return { chain, ep: { trustCustomEndpoints: true, clients: [client(chain, 'a'), client(chain, 'b')] } };
+  return { chain, ep: { network: 'testnet', trustCustomEndpoints: true, clients: [client(chain, 'a'), client(chain, 'b')] } };
 }
 
 function memoryStore() {

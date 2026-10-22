@@ -26,7 +26,7 @@ function iso(ms) {
 
 async function honest() {
   const chain = makeChain(ROOT);
-  const ep = { trustCustomEndpoints: true, clients: [client(chain, 'a'), client(chain, 'b')] };
+  const ep = { network: 'testnet', trustCustomEndpoints: true, clients: [client(chain, 'a'), client(chain, 'b')] };
   const principal = qm.generateKey();
   const holder = qm.generateKey();
   const mandate = qm.grant({

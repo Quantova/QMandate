@@ -16,7 +16,7 @@ const ROOT = path.join(__dirname, '..');
 
 function world(t) {
   const chain = makeChain(ROOT);
-  const ep = { trustCustomEndpoints: true, clients: [client(chain, 'a'), client(chain, 'b')] };
+  const ep = { network: 'testnet', trustCustomEndpoints: true, clients: [client(chain, 'a'), client(chain, 'b')] };
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'qmandate-type-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const principal = qm.generateKey();
@@ -76,7 +76,7 @@ test('the command line refuses to verify without the expected type and never pri
   const mandateFile = path.join(w.dir, 'mandate.json');
   fs.writeFileSync(revFile, JSON.stringify(forged));
   fs.writeFileSync(mandateFile, JSON.stringify(w.mandate));
-  const run = (extra) => spawnSync(process.execPath, [path.join(ROOT, 'bin', 'qmandate.js'), 'verify', revFile, '--principal-key-id', qm.keyId(w.principal), '--no-revocations', '--no-prior-actions', '--allow-unanchored', '--at', new Date().toISOString()].concat(extra), { encoding: 'utf8' });
+  const run = (extra) => spawnSync(process.execPath, [path.join(ROOT, 'bin', 'qmandate.js'), 'verify', revFile, '--network', 'testnet', '--principal-key-id', qm.keyId(w.principal), '--no-revocations', '--no-prior-actions', '--allow-unanchored', '--at', new Date().toISOString()].concat(extra), { encoding: 'utf8' });
   const untyped = run([]);
   assert.strictEqual(untyped.status, 64);
   assert.match(untyped.stderr, /--type/);

@@ -8,6 +8,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const qm = require('..');
+const qstamp = require('@quantovainc/qstamp');
 
 const ENVELOPE_MAX = 1024 * 1024;
 const DETAILS_MAX = 64 * 1024 * 1024;
@@ -26,11 +27,11 @@ const HELP = `qmandate, post quantum mandates for AI agents with Quantova time p
                [--rpc URL]... [--trust-custom-endpoints] [--allow-endpoint HOST]... [--allow-loopback]
                [--trust-single-endpoint --no-strict]
   qmandate revoke --key <principal keyfile> --mandate FILE [--note TEXT] --out FILE
-  qmandate anchor <envelope>... --seed-file <file> [--mandate FILE] [--index N] [--rpc URL]... [--trust-single-endpoint]
+  qmandate anchor <envelope>... --network NAME --seed-file <file> [--mandate FILE] [--index N] [--rpc URL]... [--trust-single-endpoint]
                   [--trust-custom-endpoints] [--allow-endpoint HOST]... [--allow-loopback] [--max-fee N]
   qmandate complete <envelope>... --pending FILE [--mandate FILE] [--tx ID] [--rpc URL]... [--trust-single-endpoint]
                     [--allow-endpoint HOST]... [--allow-loopback]
-  qmandate verify <envelope> --type mandate|action|revoke [--mandate FILE] [--principal-key-id HEX | --principal-public-key FILE]
+  qmandate verify <envelope> --type mandate|action|revoke --network NAME [--mandate FILE] [--principal-key-id HEX | --principal-public-key FILE]
                   [--revocation FILE... | --no-revocations] [--prior FILE... | --no-prior-actions] [--accept-legacy-actions]
                   [--details-file FILE] [--counterparty-key-id HEX] [--executed-dir DIR] [--allow-unanchored] [--at TIME]
                   [--max-anchor-delay SECONDS] [--expect-sender ADDRESS]... [--rpc URL]... [--trust-custom-endpoints]
@@ -44,6 +45,9 @@ only with --allow-loopback and private network endpoints only when named with --
 unless --no-strict is given, and a result that rests on it is never VALID. An anchor counts only when it is
 proven by a finality certificate or by official endpoints of two different operators, any other anchor is
 UNPROVEN and never VALID. --expect-sender names the account that must have signed each anchor.
+--network names the network the envelopes are anchored on, testnet for the public network, and verify also
+takes custom for a chain reached only through endpoints given with --rpc and --trust-custom-endpoints. An
+anchor recorded on another network fails.
 act numbers every action of a scope and keeps the running total in the spend ledger folder given with
 --ledger, locked so that concurrent agents can never exceed the total limit. --spent states the amount
 spent before the ledger was first used for that mandate and action.
@@ -73,9 +77,9 @@ const SPEC = {
   check: { flags: ['trust-single-endpoint', 'trust-custom-endpoints', 'allow-loopback', 'no-strict'], values: ['mandate', 'action', 'currency', 'amount', 'counterparty', 'spent', 'ledger', 'at'], multi: ['revocation', 'rpc', 'allow-endpoint'] },
   act: { flags: ['force', 'trust-single-endpoint', 'trust-custom-endpoints', 'allow-loopback', 'no-strict'], values: ['key', 'mandate', 'ledger', 'action', 'currency', 'amount', 'counterparty', 'details-file', 'spent', 'note', 'out'], multi: ['revocation', 'rpc', 'allow-endpoint'] },
   revoke: { flags: ['force'], values: ['key', 'mandate', 'note', 'out'] },
-  anchor: { flags: ['trust-single-endpoint', 'trust-custom-endpoints', 'allow-loopback'], values: ['seed-file', 'index', 'max-fee', 'mandate'], multi: ['rpc', 'allow-endpoint'] },
+  anchor: { flags: ['trust-single-endpoint', 'trust-custom-endpoints', 'allow-loopback'], values: ['seed-file', 'index', 'max-fee', 'mandate', 'network'], multi: ['rpc', 'allow-endpoint'] },
   complete: { flags: ['trust-single-endpoint', 'allow-loopback'], values: ['pending', 'tx', 'mandate'], multi: ['rpc', 'allow-endpoint'] },
-  verify: { flags: ['allow-unanchored', 'no-revocations', 'no-prior-actions', 'accept-legacy-actions', 'json', 'trust-single-endpoint', 'trust-custom-endpoints', 'allow-loopback', 'no-strict'], values: ['type', 'mandate', 'principal-key-id', 'principal-public-key', 'counterparty-key-id', 'counterparty', 'details-file', 'executed-dir', 'at', 'max-anchor-delay'], multi: ['revocation', 'prior', 'rpc', 'allow-endpoint', 'expect-sender'] },
+  verify: { flags: ['allow-unanchored', 'no-revocations', 'no-prior-actions', 'accept-legacy-actions', 'json', 'trust-single-endpoint', 'trust-custom-endpoints', 'allow-loopback', 'no-strict'], values: ['type', 'mandate', 'principal-key-id', 'principal-public-key', 'counterparty-key-id', 'counterparty', 'details-file', 'executed-dir', 'at', 'max-anchor-delay', 'network'], multi: ['revocation', 'prior', 'rpc', 'allow-endpoint', 'expect-sender'] },
   consume: { flags: [], values: ['ledger'] },
 };
 
@@ -312,6 +316,13 @@ async function withSeedAsync(file, what, fn) {
   }
 }
 
+function networkFlag(flags, verifying) {
+  const names = Object.keys(qstamp.NETWORKS).concat(verifying ? ['custom'] : []);
+  if (flags.network === undefined) throw usageError('--network is required');
+  if (!names.includes(flags.network)) throw usageError('--network is one of ' + names.join(', ') + ', the network the envelopes are anchored on');
+  return flags.network;
+}
+
 function endpoints(flags) {
   const out = { trustSingleEndpoint: !!flags['trust-single-endpoint'], strict: !flags['no-strict'] };
   if (flags.rpc) out.clients = flags.rpc;
@@ -462,6 +473,7 @@ async function cmdAnchor(positional, flags) {
     if (!/^\d{1,9}$/.test(flags.index)) throw usageError('--index is a whole number');
     index = Number(flags.index);
   }
+  const network = networkFlag(flags, false);
   const seed = readSeed(flags['seed-file'] || process.env.QSTAMP_SEED_FILE, '--seed-file of a funded Quantova account');
   let saved = false;
   const keep = (pending) => {
@@ -471,7 +483,7 @@ async function cmdAnchor(positional, flags) {
   };
   let anchored;
   try {
-    anchored = await qm.anchor(envs, Object.assign({ seed, index, network: 'testnet', mandate, maxFee: flags['max-fee'], onPending: keep }, endpoints(flags)));
+    anchored = await qm.anchor(envs, Object.assign({ seed, index, network, mandate, maxFee: flags['max-fee'], onPending: keep }, endpoints(flags)));
   } catch (e) {
     if (e && e.pending && typeof e.pending === 'object') {
       try {
@@ -549,6 +561,7 @@ async function cmdVerify(positional, flags) {
     if (!isFolder(flags['executed-dir'])) throw usageError('the folder ' + safe(flags['executed-dir']) + ' given with --executed-dir does not exist');
     opts.executed = qm.executedIn(flags['executed-dir'], env);
   }
+  opts.network = networkFlag(flags, true);
   Object.assign(opts, endpoints(flags));
   const res = await qm.verify(env, opts);
   if (flags.json) {

@@ -140,6 +140,7 @@ export interface AnchorOptions extends EndpointOptions {
 
 export interface VerifyOptions {
   type: EnvelopeType;
+  network: 'testnet' | 'custom';
   mandate?: Envelope;
   principalKeyId?: string;
   principalPublicKey?: Uint8Array | string;

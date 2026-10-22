@@ -28,7 +28,7 @@ async function setup() {
     files[name] = path.join(dir, name + '.json');
     fs.writeFileSync(files[name], texts[name]);
   }
-  const common = ['--principal-key-id', w.qm.keyId(w.principal), '--no-revocations', '--allow-unanchored', '--at', w.at];
+  const common = ['--network', 'testnet', '--principal-key-id', w.qm.keyId(w.principal), '--no-revocations', '--allow-unanchored', '--at', w.at];
   files.details = path.join(dir, 'order.txt');
   fs.writeFileSync(files.details, 'order 200');
   const binding = ['--details-file', files.details, '--counterparty-key-id', PAYEE_KEY];
