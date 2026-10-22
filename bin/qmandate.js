@@ -12,28 +12,32 @@ const qstamp = require('@quantovainc/qstamp');
 
 const ENVELOPE_MAX = 1024 * 1024;
 const DETAILS_MAX = 64 * 1024 * 1024;
+const VALUE_FILE_MAX = 64 * 1024;
+let stdinTaken = false;
 
 const HELP = `qmandate, post quantum mandates for AI agents with Quantova time proofs
 
   qmandate keygen <keyfile>
   qmandate key <keyfile>
   qmandate grant --key <principal keyfile> --agent <agent key json> --scope ACTION,CURRENCY,PER,TOTAL ...
-                 --valid-until TIME [--valid-from TIME] [--counterparty NAME]... [--agent-label TEXT] [--note TEXT] --out FILE
-  qmandate check --mandate FILE --action ACTION [--currency CODE] [--amount N] [--counterparty NAME] (--ledger DIR | --spent N)
+                 --valid-until TIME [--valid-from TIME] [--counterparty-file FILE]... [--agent-label-file FILE] [--note-file FILE]
+                 --out FILE
+  qmandate check --mandate FILE --action ACTION [--currency CODE] [--amount-file FILE] [--counterparty-file FILE]
+                 (--ledger DIR | --spent-file FILE)
                  [--revocation FILE]... [--at TIME] [--rpc URL]... [--trust-custom-endpoints] [--allow-endpoint HOST]...
                  [--allow-loopback] [--trust-single-endpoint --no-strict]
-  qmandate act --key <agent keyfile> --mandate FILE --ledger DIR --action ACTION [--currency CODE] [--amount N]
-               [--counterparty NAME] [--details-file FILE] [--spent N] [--revocation FILE]... [--note TEXT] --out FILE
+  qmandate act --key <agent keyfile> --mandate FILE --ledger DIR --action ACTION [--currency CODE] [--amount-file FILE]
+               [--counterparty-file FILE] [--details-file FILE] [--spent-file FILE] [--revocation FILE]... [--note-file FILE] --out FILE
                [--rpc URL]... [--trust-custom-endpoints] [--allow-endpoint HOST]... [--allow-loopback]
                [--trust-single-endpoint --no-strict]
-  qmandate revoke --key <principal keyfile> --mandate FILE [--note TEXT] --out FILE
+  qmandate revoke --key <principal keyfile> --mandate FILE [--note-file FILE] --out FILE
   qmandate anchor <envelope>... --network NAME --seed-file <file> [--mandate FILE] [--index N] [--rpc URL]... [--trust-single-endpoint]
                   [--trust-custom-endpoints] [--allow-endpoint HOST]... [--allow-loopback] [--max-fee N]
   qmandate complete <envelope>... --pending FILE [--mandate FILE] [--tx ID] [--rpc URL]... [--trust-single-endpoint]
                     [--allow-endpoint HOST]... [--allow-loopback]
   qmandate verify <envelope> --type mandate|action|revoke --network NAME [--mandate FILE] [--principal-key-id HEX | --principal-public-key FILE]
                   [--revocation FILE... | --no-revocations] [--prior FILE... | --no-prior-actions] [--accept-legacy-actions]
-                  [--details-file FILE] [--counterparty-key-id HEX] [--executed-dir DIR] [--allow-unanchored] [--at TIME]
+                  [--details-file FILE] [--counterparty-key-id HEX] [--counterparty-file FILE] [--executed-dir DIR] [--allow-unanchored] [--at TIME]
                   [--max-anchor-delay SECONDS] [--expect-sender ADDRESS]... [--rpc URL]... [--trust-custom-endpoints]
                   [--allow-endpoint HOST]... [--allow-loopback] [--trust-single-endpoint --no-strict] [--json]
   qmandate consume <action> --ledger DIR
@@ -58,6 +62,9 @@ folder given with --ledger and refuses an action already recorded there, so it i
 releases a payment, and nothing is released unless it exits with 0. verify with --executed-dir reports an
 action already recorded in that folder as invalid.
 
+Amounts, counterparties, the agent label and notes are read from the files named by the -file options, or
+from standard input when the file is -, so they never appear in the shell history or the process list, and
+only one value can come from standard input. Each --counterparty-file of grant holds one counterparty.
 Amounts are whole numbers of minor units, for example 150000 for 1,500.00 USD. A scope without
 a currency is written ACTION,,0,0 and permits the action with no amount.
 
@@ -73,13 +80,13 @@ function usageError(message) {
 const SPEC = {
   keygen: { flags: ['force'], values: [] },
   key: { flags: [], values: [] },
-  grant: { flags: ['force'], values: ['key', 'agent', 'valid-until', 'valid-from', 'agent-label', 'note', 'out'], multi: ['scope', 'counterparty'] },
-  check: { flags: ['trust-single-endpoint', 'trust-custom-endpoints', 'allow-loopback', 'no-strict'], values: ['mandate', 'action', 'currency', 'amount', 'counterparty', 'spent', 'ledger', 'at'], multi: ['revocation', 'rpc', 'allow-endpoint'] },
-  act: { flags: ['force', 'trust-single-endpoint', 'trust-custom-endpoints', 'allow-loopback', 'no-strict'], values: ['key', 'mandate', 'ledger', 'action', 'currency', 'amount', 'counterparty', 'details-file', 'spent', 'note', 'out'], multi: ['revocation', 'rpc', 'allow-endpoint'] },
-  revoke: { flags: ['force'], values: ['key', 'mandate', 'note', 'out'] },
+  grant: { flags: ['force'], values: ['key', 'agent', 'valid-until', 'valid-from', 'agent-label', 'agent-label-file', 'note', 'note-file', 'out'], multi: ['scope', 'counterparty', 'counterparty-file'] },
+  check: { flags: ['trust-single-endpoint', 'trust-custom-endpoints', 'allow-loopback', 'no-strict'], values: ['mandate', 'action', 'currency', 'amount', 'amount-file', 'counterparty', 'counterparty-file', 'spent', 'spent-file', 'ledger', 'at'], multi: ['revocation', 'rpc', 'allow-endpoint'] },
+  act: { flags: ['force', 'trust-single-endpoint', 'trust-custom-endpoints', 'allow-loopback', 'no-strict'], values: ['key', 'mandate', 'ledger', 'action', 'currency', 'amount', 'amount-file', 'counterparty', 'counterparty-file', 'details-file', 'spent', 'spent-file', 'note', 'note-file', 'out'], multi: ['revocation', 'rpc', 'allow-endpoint'] },
+  revoke: { flags: ['force'], values: ['key', 'mandate', 'note', 'note-file', 'out'] },
   anchor: { flags: ['trust-single-endpoint', 'trust-custom-endpoints', 'allow-loopback'], values: ['seed-file', 'index', 'max-fee', 'mandate', 'network'], multi: ['rpc', 'allow-endpoint'] },
   complete: { flags: ['trust-single-endpoint', 'allow-loopback'], values: ['pending', 'tx', 'mandate'], multi: ['rpc', 'allow-endpoint'] },
-  verify: { flags: ['allow-unanchored', 'no-revocations', 'no-prior-actions', 'accept-legacy-actions', 'json', 'trust-single-endpoint', 'trust-custom-endpoints', 'allow-loopback', 'no-strict'], values: ['type', 'mandate', 'principal-key-id', 'principal-public-key', 'counterparty-key-id', 'counterparty', 'details-file', 'executed-dir', 'at', 'max-anchor-delay', 'network'], multi: ['revocation', 'prior', 'rpc', 'allow-endpoint', 'expect-sender'] },
+  verify: { flags: ['allow-unanchored', 'no-revocations', 'no-prior-actions', 'accept-legacy-actions', 'json', 'trust-single-endpoint', 'trust-custom-endpoints', 'allow-loopback', 'no-strict'], values: ['type', 'mandate', 'principal-key-id', 'principal-public-key', 'counterparty-key-id', 'counterparty', 'counterparty-file', 'details-file', 'executed-dir', 'at', 'max-anchor-delay', 'network'], multi: ['revocation', 'prior', 'rpc', 'allow-endpoint', 'expect-sender'] },
   consume: { flags: [], values: ['ledger'] },
 };
 
@@ -384,6 +391,49 @@ function readDetails(file) {
   }
 }
 
+function valueFile(file, what) {
+  let raw;
+  if (file === '-') {
+    if (stdinTaken) throw usageError('only one value can be read from standard input');
+    stdinTaken = true;
+    try {
+      raw = fs.readFileSync(0);
+    } catch (e) {
+      throw usageError(what + ' - could not read standard input');
+    }
+  } else {
+    const fd = openRegular(file, what);
+    try {
+      if (fs.fstatSync(fd).size > VALUE_FILE_MAX) throw usageError(what + ' holds more than ' + VALUE_FILE_MAX + ' bytes');
+      raw = fs.readFileSync(fd);
+    } finally {
+      fs.closeSync(fd);
+    }
+  }
+  if (raw.length > VALUE_FILE_MAX) throw usageError(what + ' holds more than ' + VALUE_FILE_MAX + ' bytes');
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(raw).replace(/\r?\n$/, '');
+  } catch (e) {
+    throw usageError(what + ' must hold UTF-8 text');
+  }
+}
+
+function inlineRefused(flags, name) {
+  if (flags[name] !== undefined) throw usageError('--' + name + ' is no longer taken on the command line, where it shows in the shell history and the process list, give --' + name + '-file FILE, or --' + name + '-file - to read it from standard input');
+}
+
+function privateValue(flags, name) {
+  inlineRefused(flags, name);
+  const file = flags[name + '-file'];
+  return file === undefined ? undefined : valueFile(file, '--' + name + '-file');
+}
+
+function privateList(flags, name) {
+  inlineRefused(flags, name);
+  const files = flags[name + '-file'];
+  return files === undefined ? undefined : files.map((f) => valueFile(f, '--' + name + '-file'));
+}
+
 function scopeOf(text) {
   const parts = text.split(',');
   if (parts.length !== 4) throw usageError('--scope is ACTION,CURRENCY,PER,TOTAL, for example payment.send,USD,500000,2000000');
@@ -400,9 +450,12 @@ async function cmdGrant(positional, flags) {
   const agent = readJson(need(flags, 'agent'), 'agent key');
   const scopes = (flags.scope || []).map(scopeOf);
   if (scopes.length === 0) throw usageError('at least one --scope is required');
+  const counterparties = privateList(flags, 'counterparty');
+  const agentLabel = privateValue(flags, 'agent-label');
+  const note = privateValue(flags, 'note');
   const env = withSeed(need(flags, 'key'), '--key', (seed) => qm.grant({
-    key: seed, agent, scopes, counterparties: flags.counterparty, validUntil: need(flags, 'valid-until'),
-    validFrom: flags['valid-from'], agentLabel: flags['agent-label'], note: flags.note,
+    key: seed, agent, scopes, counterparties, validUntil: need(flags, 'valid-until'),
+    validFrom: flags['valid-from'], agentLabel, note,
   }));
   writeEnvelope(out, env, flags.force);
   console.log('mandate ' + env.statement.mandateId + ' granted to agent ' + env.statement.agentKeyId + ', written to ' + safe(out));
@@ -413,8 +466,11 @@ async function cmdCheck(positional, flags) {
   if (positional.length) throw usageError('check takes options only');
   const mandate = readJson(need(flags, 'mandate'), 'mandate', true);
   const revocations = (flags.revocation || []).map((f) => readJson(f, 'revocation'));
-  if (flags.ledger === undefined && flags.spent === undefined) throw usageError('give --ledger with the spend ledger folder, or --spent with the amount already spent');
-  const res = await qm.authorise(mandate, { action: need(flags, 'action'), currency: flags.currency, amount: flags.amount, counterparty: flags.counterparty }, Object.assign({ spent: flags.spent, ledger: flags.ledger, revocations, at: flags.at }, endpoints(flags)));
+  const amount = privateValue(flags, 'amount');
+  const counterparty = privateValue(flags, 'counterparty');
+  const spent = privateValue(flags, 'spent');
+  if (flags.ledger === undefined && spent === undefined) throw usageError('give --ledger with the spend ledger folder, or --spent-file with the amount already spent');
+  const res = await qm.authorise(mandate, { action: need(flags, 'action'), currency: flags.currency, amount, counterparty }, Object.assign({ spent, ledger: flags.ledger, revocations, at: flags.at }, endpoints(flags)));
   if (res.allowed) console.log('ALLOWED');
   else {
     for (const r of res.reasons) console.log('refused  ' + safe(r));
@@ -429,9 +485,13 @@ async function cmdAct(positional, flags) {
   const mandate = readJson(need(flags, 'mandate'), 'mandate', true);
   const details = flags['details-file'] !== undefined ? readDetails(flags['details-file']) : undefined;
   const revocations = (flags.revocation || []).map((f) => readJson(f, 'revocation'));
+  const amount = privateValue(flags, 'amount');
+  const counterparty = privateValue(flags, 'counterparty');
+  const spent = privateValue(flags, 'spent');
+  const note = privateValue(flags, 'note');
   const env = await withSeedAsync(need(flags, 'key'), '--key', (seed) => qm.act(Object.assign({
-    key: seed, mandate, ledger: need(flags, 'ledger'), action: need(flags, 'action'), currency: flags.currency, amount: flags.amount,
-    counterparty: flags.counterparty, details, spent: flags.spent, note: flags.note, revocations,
+    key: seed, mandate, ledger: need(flags, 'ledger'), action: need(flags, 'action'), currency: flags.currency, amount,
+    counterparty, details, spent, note, revocations,
   }, endpoints(flags))));
   writeEnvelope(out, env, flags.force);
   console.log('action ' + env.statement.actionId + ' number ' + env.statement.sequence + ' signed under mandate ' + env.statement.mandateId + ', running total ' + env.statement.total + ', written to ' + safe(out));
@@ -442,7 +502,8 @@ async function cmdRevoke(positional, flags) {
   if (positional.length) throw usageError('revoke takes options only');
   const out = need(flags, 'out');
   const mandate = readJson(need(flags, 'mandate'), 'mandate', true);
-  const env = withSeed(need(flags, 'key'), '--key', (seed) => qm.revoke({ key: seed, mandate, note: flags.note }));
+  const note = privateValue(flags, 'note');
+  const env = withSeed(need(flags, 'key'), '--key', (seed) => qm.revoke({ key: seed, mandate, note }));
   writeEnvelope(out, env, flags.force);
   console.log('revocation of mandate ' + env.statement.mandateId + ' written to ' + safe(out));
   return 0;
@@ -544,7 +605,8 @@ async function cmdVerify(positional, flags) {
     if (!/^[0-9a-f]{64}$/.test(flags['counterparty-key-id'])) throw usageError('--counterparty-key-id is 64 lowercase hex characters');
     opts.counterpartyKeyId = flags['counterparty-key-id'];
   }
-  if (flags.counterparty !== undefined) opts.counterparty = flags.counterparty;
+  const counterparty = privateValue(flags, 'counterparty');
+  if (counterparty !== undefined) opts.counterparty = counterparty;
   if (flags['principal-public-key'] !== undefined) {
     const desc = readJson(flags['principal-public-key'], 'principal key');
     if (!desc || desc.format !== 'qmandate-key/1' || typeof desc.publicKey !== 'string') throw usageError('the principal key file is not a qmandate-key/1 description');

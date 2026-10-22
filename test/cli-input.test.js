@@ -32,6 +32,10 @@ async function setup() {
   files.details = path.join(dir, 'order.txt');
   fs.writeFileSync(files.details, 'order 200');
   const binding = ['--details-file', files.details, '--counterparty-key-id', PAYEE_KEY];
+  for (const [name, value] of [['amount', '1'], ['shop', 'shop'], ['spent', '0']]) {
+    files[name] = path.join(dir, name + '.txt');
+    fs.writeFileSync(files[name], value);
+  }
   const cmd = {
     mandate: (f) => ['verify', f, '--type', 'mandate'].concat(common),
     action: (f) => ['verify', f, '--type', 'action', '--mandate', files.mandate, '--prior', files.prior].concat(common, binding),
@@ -39,7 +43,7 @@ async function setup() {
     actionWithPrior: (f) => ['verify', files.action, '--type', 'action', '--mandate', files.mandate, '--prior', f].concat(common, binding),
     revoke: (f) => ['verify', f, '--type', 'revoke', '--mandate', files.mandate].concat(common),
     revokeWithMandate: (f) => ['verify', files.revoke, '--type', 'revoke', '--mandate', f].concat(common),
-    check: (f) => ['check', '--mandate', f, '--action', 'payment.send', '--currency', 'USD', '--amount', '1', '--counterparty', 'shop', '--spent', '0', '--trust-custom-endpoints'].concat(RPC),
+    check: (f) => ['check', '--mandate', f, '--action', 'payment.send', '--currency', 'USD', '--amount-file', files.amount, '--counterparty-file', files.shop, '--spent-file', files.spent, '--trust-custom-endpoints'].concat(RPC),
     complete: (f) => ['complete', f, '--pending', files.pending, '--mandate', files.mandate].concat(RPC),
     completeWithPending: (f) => ['complete', files.prior, '--pending', f, '--mandate', files.mandate].concat(RPC),
     completeWithMandate: (f) => ['complete', files.prior, '--pending', files.pending, '--mandate', f].concat(RPC),
