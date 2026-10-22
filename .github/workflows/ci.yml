@@ -115,7 +115,7 @@ jobs:
         run: npm sbom --package-lock-only --omit dev --sbom-format cyclonedx > "$RUNNER_TEMP/sbom.cdx.json"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
-          name: sbom
+          name: release-sbom
           if-no-files-found: error
           retention-days: 90
           path: ${{ runner.temp }}/sbom.cdx.json
