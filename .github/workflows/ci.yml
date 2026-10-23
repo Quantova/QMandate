@@ -20,7 +20,7 @@ concurrency:
 jobs:
   sdk:
     name: sdk
-    uses: Quantova/Quantova-Ci/.github/workflows/npm-wasm-sdk.yml@0f43a1235405a82ec628e7e4cba8d946bfc0efd9
+    uses: Quantova/Quantova-Ci/.github/workflows/npm-wasm-sdk.yml@06e6113a40fe5bccdd22236a2632782c0ee26da4
     permissions:
       contents: read
       id-token: write
@@ -28,9 +28,6 @@ jobs:
       test-command: |
         set -euo pipefail
         npm test
-    secrets:
-      NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
-
 
   macos:
     name: macos
