@@ -27,19 +27,7 @@ jobs:
     with:
       test-command: |
         set -euo pipefail
-        case "$GITHUB_REF" in
-          refs/tags/*) ;;
-          *)
-            src="$RUNNER_TEMP/qstamp"
-            git init -q "$src"
-            git -C "$src" fetch -q --depth 1 https://github.com/Quantova/QStamp.git c939028ba5be177fc86e34afe03d8a6cfecd958f
-            git -C "$src" checkout -q FETCH_HEAD
-            (cd "$src" && npm pack --ignore-scripts --pack-destination "$RUNNER_TEMP")
-            npm install --no-save --ignore-scripts "$RUNNER_TEMP"/quantovainc-qstamp-*.tgz
-            ;;
-        esac
         npm test
-        npm ci --ignore-scripts
     secrets:
       NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
 
