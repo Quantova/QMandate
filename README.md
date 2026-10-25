@@ -41,7 +41,7 @@ QMandate gives a network neutral, post quantum record of authority and conduct t
 
 6. Anchor on a schedule. A single service with a funded Quantova account anchors new actions in batches. Each action receives its own receipt.
 
-7. Revoke when circumstances change. When an agent is retired, compromised or no longer needed, the principal signs and anchors a revocation. Every action recorded after it is shown to be invalid, and actions recorded before it remain valid.
+7. Revoke when circumstances change. When an agent is retired, compromised or no longer needed, the principal signs and anchors a revocation. Every action recorded after it is shown to be invalid, and actions recorded before it remain valid. While any revocation of the mandate has no proven time, an action is indeterminate, even when another revocation proven later than the action is supplied, since the unproven one may have come first.
 
 8. Verify when evidence is needed. The organisation hands the action, the mandate, any revocations and the earlier actions under the same mandate to the party that asks. That party verifies them against the principal key it expects, with the verify command, the library or the independent procedure below. Verification always requires the expected envelope type and the expected principal, so a mandate issued by any other key is rejected and a mandate or revocation can never pass where an action is expected.
 
