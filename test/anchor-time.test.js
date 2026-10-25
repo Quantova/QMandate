@@ -36,7 +36,7 @@ function issuedAt(env, key, seconds) {
 test('a mandate issued more than a day before its anchor, or anchored after the time of verification, is not proven', async (t) => {
   proven(t);
   const now = Math.floor(Date.now() / 1000);
-  const chain = makeChain(ROOT, { time: now - 4 * 86400 });
+  const chain = makeChain(ROOT, { time: now - 120 });
   const ep = { network: 'testnet', trustCustomEndpoints: true, clients: [client(chain, 'a'), client(chain, 'b')] };
   const principal = qm.generateKey();
   const grant = qm.grant({ key: principal, agent: qm.keyId(qm.generateKey()), scopes: [{ action: 'pay', currency: 'EUR', maxPerAction: '100', maxTotal: '1000' }], validFrom: iso(now - 4 * 86400), validUntil: iso(now + 86400) });
