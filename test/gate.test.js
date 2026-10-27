@@ -9,6 +9,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const qm = require('..');
+const auth = (m, req, opts) => qm.authorise(m, req, Object.assign({ principalKeyId: m.statement.principalKeyId }, opts));
 const F = require('../lib/format');
 const { makeChain, client, SEED } = require('./chain');
 
@@ -49,7 +50,7 @@ test('concurrent tool calls that follow the documented flow never move more than
     const moved = [];
     const tool = async (counterparty) => {
       const request = { action: 'payment.send', currency: 'USD', amount: '600', counterparty };
-      await qm.authorise(s.mandate, request, Object.assign({ ledger }, s.ep));
+      await auth(s.mandate, request, Object.assign({ ledger }, s.ep));
       let action;
       try {
         action = await qm.act(Object.assign({ key: s.agent, mandate: s.mandate, ledger }, request, s.ep));
@@ -74,7 +75,7 @@ test('authorise allows concurrent requests against the same total, which is why 
   const s = setup('600', '1000');
   const ledger = folder();
   const request = { action: 'payment.send', currency: 'USD', amount: '600' };
-  const advice = await Promise.all([0, 1, 2].map(() => qm.authorise(s.mandate, request, Object.assign({ ledger }, s.ep))));
+  const advice = await Promise.all([0, 1, 2].map(() => auth(s.mandate, request, Object.assign({ ledger }, s.ep))));
   assert.ok(advice.every((a) => a.allowed));
   const signed = await Promise.allSettled([0, 1, 2].map(() => qm.act(Object.assign({ key: s.agent, mandate: s.mandate, ledger }, request, s.ep))));
   assert.strictEqual(signed.filter((r) => r.status === 'fulfilled').length, 1);
@@ -147,7 +148,7 @@ test('options are read only from the object given and never from Object.prototyp
       assert.strictEqual(r.status, before[i].status);
       assert.notStrictEqual(r.status, 'valid');
     }
-    await assert.rejects(qm.authorise(s.mandate, { action: 'payment.send', currency: 'USD', amount: '100' }, s.ep), /spent/);
+    await assert.rejects(auth(s.mandate, { action: 'payment.send', currency: 'USD', amount: '100' }, s.ep), /spent/);
     const next = await qm.act(Object.assign({ key: s.agent, mandate: s.mandate, ledger, action: 'payment.send', currency: 'USD', amount: '100' }, s.ep));
     assert.strictEqual(next.statement.counterparty, '');
     assert.strictEqual(next.statement.total, '200');

@@ -43,7 +43,7 @@ async function setup() {
     actionWithPrior: (f) => ['verify', files.action, '--type', 'action', '--mandate', files.mandate, '--prior', f].concat(common, binding),
     revoke: (f) => ['verify', f, '--type', 'revoke', '--mandate', files.mandate].concat(common),
     revokeWithMandate: (f) => ['verify', files.revoke, '--type', 'revoke', '--mandate', f].concat(common),
-    check: (f) => ['check', '--mandate', f, '--action', 'payment.send', '--currency', 'USD', '--amount-file', files.amount, '--counterparty-file', files.shop, '--spent-file', files.spent, '--trust-custom-endpoints'].concat(RPC),
+    check: (f) => ['check', '--mandate', f, '--action', 'payment.send', '--currency', 'USD', '--amount-file', files.amount, '--counterparty-file', files.shop, '--spent-file', files.spent, '--principal-key-id', w.qm.keyId(w.principal), '--trust-custom-endpoints'].concat(RPC),
     complete: (f) => ['complete', f, '--pending', files.pending, '--mandate', files.mandate].concat(RPC),
     completeWithPending: (f) => ['complete', files.prior, '--pending', f, '--mandate', files.mandate].concat(RPC),
     completeWithMandate: (f) => ['complete', files.prior, '--pending', files.pending, '--mandate', f].concat(RPC),

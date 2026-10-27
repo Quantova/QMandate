@@ -173,6 +173,7 @@ test('authorise never allows a mandate outside its period or one its principal r
     }
     const atMs = r.int(5) < 2 ? undefined : chainMs + r.int(2 * (SKEW + 60000)) - (SKEW + 60000);
     const opts = Object.assign({ spent: '0', revocations }, ep);
+    opts.principalKeyId = mandate.statement.principalKeyId;
     if (atMs !== undefined) opts.at = iso(atMs);
     const t0 = Date.now();
     let res;

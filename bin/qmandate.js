@@ -22,7 +22,8 @@ const HELP = `qmandate, post quantum mandates for AI agents with Quantova time p
   qmandate grant --key <principal keyfile> --agent <agent key json> --scope ACTION,CURRENCY,PER,TOTAL ...
                  --valid-until TIME [--valid-from TIME] [--counterparty-file FILE]... [--agent-label-file FILE] [--note-file FILE]
                  --out FILE
-  qmandate check --mandate FILE --action ACTION [--currency CODE] [--amount-file FILE] [--counterparty-file FILE]
+  qmandate check --mandate FILE --action ACTION (--principal-key-id HEX | --principal-public-key FILE)
+                 [--currency CODE] [--amount-file FILE] [--counterparty-file FILE]
                  (--ledger DIR | --spent-file FILE)
                  [--revocation FILE]... [--at TIME] [--rpc URL]... [--trust-custom-endpoints] [--allow-endpoint HOST]...
                  [--allow-loopback] [--trust-single-endpoint --no-strict]
@@ -81,7 +82,7 @@ const SPEC = {
   keygen: { flags: ['force'], values: [] },
   key: { flags: [], values: [] },
   grant: { flags: ['force'], values: ['key', 'agent', 'valid-until', 'valid-from', 'agent-label', 'agent-label-file', 'note', 'note-file', 'out'], multi: ['scope', 'counterparty', 'counterparty-file'] },
-  check: { flags: ['trust-single-endpoint', 'trust-custom-endpoints', 'allow-loopback', 'no-strict'], values: ['mandate', 'action', 'currency', 'amount', 'amount-file', 'counterparty', 'counterparty-file', 'spent', 'spent-file', 'ledger', 'at'], multi: ['revocation', 'rpc', 'allow-endpoint'] },
+  check: { flags: ['trust-single-endpoint', 'trust-custom-endpoints', 'allow-loopback', 'no-strict'], values: ['mandate', 'action', 'currency', 'amount', 'amount-file', 'counterparty', 'counterparty-file', 'spent', 'spent-file', 'ledger', 'at', 'principal-key-id', 'principal-public-key'], multi: ['revocation', 'rpc', 'allow-endpoint'] },
   act: { flags: ['force', 'trust-single-endpoint', 'trust-custom-endpoints', 'allow-loopback', 'no-strict'], values: ['key', 'mandate', 'ledger', 'action', 'currency', 'amount', 'amount-file', 'counterparty', 'counterparty-file', 'details-file', 'spent', 'spent-file', 'note', 'note-file', 'out'], multi: ['revocation', 'rpc', 'allow-endpoint'] },
   revoke: { flags: ['force'], values: ['key', 'mandate', 'note', 'note-file', 'out'] },
   anchor: { flags: ['trust-single-endpoint', 'trust-custom-endpoints', 'allow-loopback'], values: ['seed-file', 'index', 'max-fee', 'mandate', 'network'], multi: ['rpc', 'allow-endpoint'] },
@@ -470,7 +471,16 @@ async function cmdCheck(positional, flags) {
   const counterparty = privateValue(flags, 'counterparty');
   const spent = privateValue(flags, 'spent');
   if (flags.ledger === undefined && spent === undefined) throw usageError('give --ledger with the spend ledger folder, or --spent-file with the amount already spent');
-  const res = await qm.authorise(mandate, { action: need(flags, 'action'), currency: flags.currency, amount, counterparty }, Object.assign({ spent, ledger: flags.ledger, revocations, at: flags.at }, endpoints(flags)));
+  if (flags['principal-key-id'] !== undefined && flags['principal-public-key'] !== undefined) throw usageError('give --principal-key-id or --principal-public-key, not both');
+  let principalKeyId = flags['principal-key-id'];
+  if (principalKeyId !== undefined && !/^[0-9a-f]{64}$/.test(principalKeyId)) throw usageError('--principal-key-id is 64 lowercase hex characters');
+  if (principalKeyId === undefined && flags['principal-public-key'] !== undefined) {
+    const desc = readJson(flags['principal-public-key'], 'principal key');
+    if (!desc || desc.format !== 'qmandate-key/1' || typeof desc.id !== 'string') throw usageError('the principal key file is not a qmandate-key/1 description');
+    principalKeyId = desc.id;
+  }
+  if (principalKeyId === undefined) throw usageError('give the expected principal with --principal-key-id or --principal-public-key, so check never allows a mandate a stranger signed for themselves');
+  const res = await qm.authorise(mandate, { action: need(flags, 'action'), currency: flags.currency, amount, counterparty }, Object.assign({ spent, ledger: flags.ledger, revocations, at: flags.at, principalKeyId }, endpoints(flags)));
   if (res.allowed) console.log('ALLOWED');
   else {
     for (const r of res.reasons) console.log('refused  ' + safe(r));
