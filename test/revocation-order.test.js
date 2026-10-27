@@ -24,3 +24,31 @@ test('a revocation without a proven time keeps an action from verifying valid ev
     h.cleanup();
   }
 });
+
+test('a revocation that shares the mandate id and principal but names a different mandate reference does not over apply', async (t) => {
+  t.after(provenByPinnedOperators());
+  const F = require('../lib/format');
+  const native = require('../lib/native');
+  const crypto = require('crypto');
+  const h = await honest();
+  try {
+    const genuine = qm.revoke({ key: h.principal, mandate: h.records.mandate });
+    const flip = (s) => (s[0] === '0' ? '1' : '0') + s.slice(1);
+    const statement = Object.assign({}, genuine.statement, { mandateRef: flip(genuine.statement.mandateRef) });
+    assert.notStrictEqual(statement.mandateRef, genuine.statement.mandateRef);
+    const rnd = new Uint8Array(32);
+    crypto.randomFillSync(rnd);
+    const signature = native.sign(h.principal, F.payload('revoke', statement, F.VERSION), rnd);
+    const spoofed = Object.assign({}, genuine, { statement, signature: Buffer.from(signature).toString('base64') });
+
+    const control = await qm.verify(h.records.mandate, Object.assign({}, h.options.mandate, { revocations: [genuine] }));
+    const controlCheck = control.checks.find((c) => c.name === 'revocations');
+    assert.match(controlCheck.detail, /revoked this mandate/);
+
+    const applied = await qm.verify(h.records.mandate, Object.assign({}, h.options.mandate, { revocations: [spoofed] }));
+    const spoofedCheck = applied.checks.find((c) => c.name === 'revocations');
+    assert.match(spoofedCheck.detail, /no revocation of this mandate was supplied/);
+  } finally {
+    h.cleanup();
+  }
+});
