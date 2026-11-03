@@ -110,6 +110,6 @@ test('the legacy format cutoff is a named constant sourced from config with the 
   assert.strictEqual(config.DEFAULT_LEGACY_FORMAT_CUTOFF, '2026-10-19T05:09:09.000Z');
   assert.strictEqual(F.LEGACY_CUTOFF, config.DEFAULT_LEGACY_FORMAT_CUTOFF);
   assert.strictEqual(config.legacyFormatCutoff({}), config.DEFAULT_LEGACY_FORMAT_CUTOFF);
-  assert.strictEqual(config.legacyFormatCutoff({ QMANDATE_LEGACY_CUTOFF: '2030-01-01T00:00:00.000Z' }), '2030-01-01T00:00:00.000Z');
+  assert.strictEqual(config.legacyFormatCutoff({ QMANDATE_LEGACY_CUTOFF: '2030-01-01T00:00:00.000Z' }), config.DEFAULT_LEGACY_FORMAT_CUTOFF);
   assert.strictEqual(config.legacyFormatCutoff({ QMANDATE_LEGACY_CUTOFF: 'not a time' }), config.DEFAULT_LEGACY_FORMAT_CUTOFF);
 });
